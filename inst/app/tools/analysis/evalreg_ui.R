@@ -16,8 +16,10 @@ ereg_inputs <- reactive({
 # Evaluate model evalreg
 ###############################################################
 output$ui_ereg_rvar <- renderUI({
-  isNum <- .getclass() %in% c("integer","numeric")
-  vars <- varnames()[isNum]
+  withProgress(message = "Acquiring variable information", value = 1, {
+    isNum <- .getclass() %in% c("integer","numeric")
+    vars <- varnames()[isNum]
+  })
   selectInput(inputId = "ereg_rvar", label = "Response variable:", choices = vars,
     selected = state_single("ereg_rvar", vars), multiple = FALSE)
 })
@@ -37,12 +39,6 @@ output$ui_ereg_pred <- renderUI({
 })
 
 output$ui_ereg_train <- renderUI({
-  if (is.null(input$show_filter) || input$show_filter == "FALSE" ||
-      is_empty(input$data_filter)) {
-    ereg_train <- ereg_train[1]
-    r_state$ereg_train <<- ereg_train
-  }
-
   radioButtons("ereg_train", label = "Show results for:", ereg_train,
     selected = state_init("ereg_train", "All"),
     inline = TRUE)
@@ -59,7 +55,7 @@ output$ui_evalreg <- renderUI({
       uiOutput("ui_ereg_pred"),
       uiOutput("ui_ereg_train")
   	),
-  	help_and_report(modal_title = "Model evalreg",
+  	help_and_report(modal_title = "Evaluate regressions",
   	                fun_name = "evalreg",
   	                help_file = inclMD(file.path(getOption("radiant.path.model"),"app/tools/help/evalreg.md")))
 	)
@@ -90,7 +86,6 @@ output$evalreg <- renderUI({
 })
 
 .evalreg <- eventReactive(input$ereg_run, {
-  # req(input$ereg_pause == FALSE, cancelOutput = TRUE)
 	do.call(evalreg, ereg_inputs())
 })
 
@@ -105,10 +100,12 @@ output$evalreg <- renderUI({
   if (not_pressed(input$ereg_run)) return(invisible())
   if (not_available(input$ereg_rvar) || not_available(input$ereg_pred)) return(" ")
   req(input$ereg_train)
-  plot(.evalreg(), shiny = TRUE)
+  plot(.evalreg())
 })
 
 observeEvent(input$evalreg_report, {
+  if (is_empty(input$ereg_pred)) return(invisible())
+
   outputs <- c("summary","plot")
   update_report(inp_main = clean_args(ereg_inputs(), ereg_args),
                 fun_name = "evalreg",

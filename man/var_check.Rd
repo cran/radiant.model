@@ -22,11 +22,10 @@ Check if main effects for all interaction effects are included in the model
 If ':' is used to select a range _evar_ is updated
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/regress.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/regress.html} for an example in Radiant
 }
 \examples{
 var_check("a:d", c("a","b","c","d"))
 var_check(c("a", "b"), c("a", "b"), "a:c")
 
 }
-

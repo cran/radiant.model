@@ -2,14 +2,13 @@
 # Regression - UI
 ################################################################
 reg_show_interactions <- c("None" = "", "2-way" = 2, "3-way" = 3)
-# reg_predict <- c("None" = "none", "Variable" = "vars", "Data" = "data","Command" = "cmd")
 reg_predict <- c("None" = "none", "Data" = "data","Command" = "cmd", "Data & Command" = "datacmd")
 reg_check <- c("Standardize" = "standardize", "Center" = "center",
-               "Stepwise" = "stepwise")
+               "Stepwise" = "stepwise-backward")
 reg_sum_check <- c("RMSE" = "rmse", "Sum of squares" = "sumsquares",
                    "VIF" = "vif", "Confidence intervals" = "confint")
 reg_lines <- c("Line" = "line", "Loess" = "loess", "Jitter" = "jitter")
-reg_plots <- c("None" = "", "Histograms" = "hist",
+reg_plots <- c("None" = "", "Distribution" = "dist",
                "Correlations" = "correlations", "Scatter" = "scatter",
                "Dashboard" = "dashboard",
                "Residual vs explanatory" = "resid_pred",
@@ -86,8 +85,10 @@ reg_pred_plot_inputs <- reactive({
 })
 
 output$ui_reg_rvar <- renderUI({
-  isNum <- "numeric" == .getclass() | "integer" == .getclass()
-  vars <- varnames()[isNum]
+  withProgress(message = "Acquiring variable information", value = 1, {
+    isNum <- "numeric" == .getclass() | "integer" == .getclass()
+    vars <- varnames()[isNum]
+  })
   selectInput(inputId = "reg_rvar", label = "Response variable:", choices = vars,
     selected = state_single("reg_rvar",vars), multiple = FALSE)
 })
@@ -124,9 +125,10 @@ output$ui_reg_show_interactions <- renderUI({
   radioButtons(inputId = "reg_show_interactions", label = "Interactions:",
     choices = choices, selected = state_init("reg_show_interactions"),
     inline = TRUE)
- })
+})
 
 output$ui_reg_int <- renderUI({
+
   if (isolate("reg_show_interactions" %in% names(input)) &&
       is_empty(input$reg_show_interactions)) {
     choices <- character(0)
@@ -139,9 +141,22 @@ output$ui_reg_int <- renderUI({
     choices <- iterms(vars, input$reg_show_interactions)
   }
 
+  # req(length(input$reg_evar) > 0)
+  # req(input$reg_show_interactions)
+  # vars <- input$reg_evar
+  # if (not_available(vars) || length(vars) < 2 || is_empty(input$reg_show_interactions)) 
+  #   choices <- character(0)
+  # else
+  #   choices <- iterms(vars, input$reg_show_interactions)
+
   selectInput("reg_int", label = NULL, choices = choices,
     selected = state_init("reg_int"),
     multiple = TRUE, size = min(4,length(choices)), selectize = FALSE)
+})
+
+## reset prediction settings when the dataset changes
+observeEvent(input$dataset, {
+  updateSelectInput(session = session, inputId = "reg_predict", selected = "none")
 })
 
 output$ui_reg_predict_plot <- renderUI({
@@ -204,7 +219,6 @@ output$ui_regress <- renderUI({
       uiOutput("ui_reg_evar"),
 
       conditionalPanel(condition = "input.reg_evar != null",
-
         uiOutput("ui_reg_show_interactions"),
         conditionalPanel(condition = "input.reg_show_interactions != ''",
           uiOutput("ui_reg_int")
@@ -248,7 +262,7 @@ reg_plot <- reactive({
   plot_width <- 650
   nrVars <- length(input$reg_evar) + 1
 
-  if (input$reg_plots == "hist") plot_height <- (plot_height / 2) * ceiling(nrVars / 2)
+  if (input$reg_plots == "dist") plot_height <- (plot_height / 2) * ceiling(nrVars / 2)
   if (input$reg_plots == "dashboard") plot_height <- 1.5 * plot_height
   if (input$reg_plots == "correlations") { plot_height <- 150 * nrVars; plot_width <- 150 * nrVars }
   if (input$reg_plots == "coef") plot_height <- 300 + 20 * length(.regress()$model$coefficients)
@@ -317,19 +331,13 @@ reg_available <- reactive({
 
 .regress <- eventReactive(input$reg_run, {
   req(available(input$reg_rvar), available(input$reg_evar))
-
-  ## need dependency in reg_int so I can have names(input) in isolate
-  # input$reg_int
-  # isolate(req("reg_int" %in% names(input)))
-
-  # req(input$reg_pause == FALSE, cancelOutput = TRUE)
-
-  do.call(regress, reg_inputs())
+  withProgress(message = "Estimating model", value = 1, {
+    do.call(regress, reg_inputs())
+  })
 })
 
 .summary_regress <- reactive({
   if (reg_available() != "available") return(reg_available())
-  # if (input$reg_rvar %in% input$reg_evar) return()
   if (not_pressed(input$reg_run)) return("** Press the Estimate button to estimate the model **")
   do.call(summary, c(list(object = .regress()), reg_sum_inputs()))
 })
@@ -338,10 +346,6 @@ reg_available <- reactive({
   if (reg_available() != "available") return(reg_available())
   if (not_pressed(input$reg_run)) return("** Press the Estimate button to estimate the model **")
   if (is_empty(input$reg_predict, "none")) return("** Select prediction input **")
-  # req(!is_empty(input$reg_predict, "none"))
-     # (!is_empty(input$reg_pred_data) || !is_empty(input$reg_pred_cmd)))
-  # if (is_empty(input$reg_predict, "none"))
-
   if((input$reg_predict == "data" || input$reg_predict == "datacmd") && is_empty(input$reg_pred_data))
     return("** Select data for prediction **")
   if(input$reg_predict == "cmd" && is_empty(input$reg_pred_cmd))
@@ -381,12 +385,14 @@ reg_available <- reactive({
 })
 
 observeEvent(input$regress_report, {
+  if (is_empty(input$reg_evar)) return(invisible())
   outputs <- c("summary")
   inp_out <- list("","")
   inp_out[[1]] <- clean_args(reg_sum_inputs(), reg_sum_args[-1])
   figs <- FALSE
   if (!is_empty(input$reg_plots)) {
     inp_out[[2]] <- clean_args(reg_plot_inputs(), reg_plot_args[-1])
+    inp_out[[2]]$custom <- FALSE
     outputs <- c(outputs, "plot")
     figs <- TRUE
   }
@@ -395,13 +401,14 @@ observeEvent(input$regress_report, {
   if (!is_empty(input$reg_predict, "none") &&
       (!is_empty(input$reg_pred_data) || !is_empty(input$reg_pred_cmd))) {
     pred_args <- clean_args(reg_pred_inputs(), reg_pred_args[-1])
-    # pred_args[["prn"]] <- 10
     inp_out[[2 + figs]] <- pred_args
     outputs <- c(outputs, "pred <- predict")
-    dataset <- if (input$reg_predict %in% c("data","datacmd")) input$reg_pred_data else input$dataset
-    xcmd <-
-      paste0("print(pred, n = 10)\nstore(pred, data = '", dataset, "', name = '", input$reg_store_pred_name,"')\n") %>%
-      paste0("# write.csv(pred, file = '~/reg_predictions.csv', row.names = FALSE)")
+
+    xcmd <- paste0("print(pred, n = 10)")
+    if (input$reg_predict %in% c("data","datacmd"))
+      xcmd <- paste0(xcmd, "\nstore(pred, data = \"", input$reg_pred_data, "\", name = \"", input$reg_store_pred_name,"\")")
+    xcmd <- paste0(xcmd, "\n# write.csv(pred, file = \"~/reg_predictions.csv\", row.names = FALSE)")
+
     if (input$reg_pred_plot && !is_empty(input$reg_xvar)) {
       inp_out[[3 + figs]] <- clean_args(reg_pred_plot_inputs(), reg_pred_plot_args[-1])
       inp_out[[3 + figs]]$result <- "pred"
@@ -421,11 +428,7 @@ observeEvent(input$reg_store_res, {
   req(pressed(input$reg_run))
   robj <- .regress()
   if (!is.list(robj)) return()
-  # if (length(robj$model$residuals) != nrow(getdata(input$dataset, filt = "", na.rm = FALSE))) {
-  #   return(message("The number of residuals is not equal to the number of rows in the data. If the data has missing values these will need to be removed."))
-  # }
-  # store_reg(robj, data = input$dataset, type = "residuals", name = input$reg_store_res_name)
-  withProgress(message = 'Storing residuals', value = 1,
+  withProgress(message = "Storing residuals", value = 1,
     store(robj, name = input$reg_store_res_name)
   )
 })
@@ -434,10 +437,7 @@ observeEvent(input$reg_store_pred, {
   req(!is_empty(input$reg_pred_data), pressed(input$reg_run))
   pred <- .predict_regress()
   if (is.null(pred)) return()
-  # if (nrow(pred) != nrow(getdata(input$reg_pred_data, filt = "", na.rm = FALSE)))
-  #   return(message("The number of predicted values is not equal to the number of rows in the data. If the data has missing values these will need to be removed."))
-  # store_reg(pred, data = input$reg_pred_data, type = "prediction", name = input$reg_store_pred_name)
-  withProgress(message = 'Storing predictions', value = 1,
+  withProgress(message = "Storing predictions", value = 1,
     store(pred, data = input$reg_pred_data, name = input$reg_store_pred_name)
   )
 })
@@ -446,14 +446,7 @@ output$dl_reg_coef <- downloadHandler(
   filename = function() { "reg_coefficients.csv" },
   content = function(file) {
     if (pressed(input$reg_run)) {
-      ret <- .regress()[["coeff"]][-1,]
-      if ("standardize" %in% input$reg_check) {
-        cat("Standardized coefficients selected\n\n", file = file)
-        sshhr(write.table(ret, sep = ",", append = TRUE, file = file, row.names = FALSE))
-      } else {
-        cat("Standardized coefficients not selected\n\n", file = file)
-        sshhr(write.table(ret, sep = ",", append = TRUE, file = file, row.names = FALSE))
-      }
+      write.coeff(.regress(), file = file)
     } else {
       cat("No output available. Press the Estimate button to generate results", file = file)
     }

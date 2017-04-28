@@ -509,7 +509,7 @@ output$simulater <- renderUI({
 })
 
 .simulater <- eventReactive(input$runSim, {
-  withProgress(message = 'Simulating', value = 1, {
+  withProgress(message = "Running simulation", value = 1, {
     do.call(simulater, sim_inputs())
   })
 })
@@ -536,23 +536,26 @@ sim_plot_height <- function() {
 
 .plot_simulate <- reactive({
   req(input$sim_show_plots)
-  withProgress(message = 'Generating simulation plots', value = 1, {
+  withProgress(message = "Generating simulation plots", value = 1, {
     .simulater() %>% { if (is_empty(.)) invisible() else plot(., shiny = TRUE) }
   })
 })
 
 .repeater <- eventReactive(input$runRepeat, {
-  withProgress(message = 'Replicating simulation', value = 1, {
+  withProgress(message = "Running repeated simulation", value = 1, {
     do.call(repeater, rep_inputs())
   })
 })
 
 .summary_repeat <- eventReactive(input$runRepeat, {
+  if (length(input$rep_sum_vars) == 0)
+    return("Select at least one Output variable")
   summary(.repeater(), dec = input$rep_dec)
 })
 
 rep_plot_width <- function() 650
 rep_plot_height <- function() {
+  if (length(input$rep_sum_vars) == 0) return(300)
   rp <- .repeater()
   if (is.character(rp)) {
     if (rp[1] == "error") return(300)
@@ -569,9 +572,10 @@ rep_plot_height <- function() {
 
 .plot_repeat <- reactive({
   req(input$rep_show_plots)
+  req(length(input$rep_sum_vars) > 0)
   object <- .repeater()
   if (is.null(object)) return(invisible())
-  withProgress(message = 'Generating repeated simulation plots', value = 1, {
+  withProgress(message = "Generating repeated simulation plots", value = 1, {
     rep_plot_inputs() %>% { .$shiny <- TRUE; . } %>%
       { do.call(plot, c(list(x = object), .)) }
   })
@@ -587,10 +591,16 @@ observeEvent(input$simulater_report, {
 
   if (isTRUE(input$sim_show_plots)) {
     outputs <- c("summary", "plot")
+    inp_out[[2]] <- list(custom = FALSE)
     figs <- TRUE
   }
 
-  update_report(inp_main = clean_args(sim_inputs(), sim_args) %>% lapply(report_cleaner),
+  ## report cleaner turns seed and nr into strings
+  inp <- clean_args(sim_inputs(), sim_args) %>% lapply(report_cleaner)
+  if (!is_empty(inp$seed)) inp$seed <- as_numeric(inp$seed)
+  if (!is_empty(inp$nr)) inp$nr <- as_numeric(inp$nr)
+
+  update_report(inp_main = inp,
                 fun_name = "simulater", inp_out = inp_out,
                 outputs = outputs, figs = figs,
                 fig.width = sim_plot_width(),
@@ -605,10 +615,16 @@ observeEvent(input$repeater_report, {
 
   if (isTRUE(input$rep_show_plots)) {
     outputs <- c("summary", "plot")
+    inp_out[[2]] <- list(custom = FALSE)
     figs <- TRUE
   }
 
-  update_report(inp_main = clean_args(rep_inputs(), rep_args) %>% lapply(report_cleaner),
+  ## report cleaner turns seed and nr into strings
+  inp <- clean_args(rep_inputs(), rep_args) %>% lapply(report_cleaner)
+  if (!is_empty(inp$seed)) inp$seed <- as_numeric(inp$seed)
+  if (!is_empty(inp$nr)) inp$nr <- as_numeric(inp$nr)
+
+  update_report(inp_main = inp,
                 fun_name = "repeater", inp_out = inp_out,
                 outputs = outputs, figs = figs,
                 fig.width = rep_plot_width(),

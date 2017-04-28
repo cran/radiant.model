@@ -1,14 +1,14 @@
-#' Generalized linear models (GLM)
+#' Logistic regression
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
 #'
 #' @param dataset Dataset name (string). This can be a dataframe in the global environment or an element in an r_data list from Radiant
-#' @param rvar The response variable in the logit (probit) model
+#' @param rvar The response variable in the model
 #' @param evar Explanatory variables in the model
 #' @param lev The level in the response variable defined as _success_
 #' @param int Interaction term to include in the model
 #' @param wts Weights to use in estimation
-#' @param check Optional estimation parameters. "standardize" to output standardized coefficient estimates. "stepwise" to apply step-wise selection of variables
+#' @param check Use "standardize" to see standardized coefficient estimates. Use "stepwise-backward" (or "stepwise-forward", or "stepwise-both") to apply step-wise selection of variables in estimation
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
 #'
 #' @return A list with all variables defined in logistic as an object of class logistic
@@ -46,7 +46,7 @@ logistic <- function(dataset, rvar, evar,
   }
 
   dat <- getdata(dataset, vars, filt = data_filter)
-  if (!is_string(dataset)) dataset <- "-----"
+  if (!is_string(dataset)) dataset <- deparse(substitute(dataset)) %>% set_attr("df", TRUE)
 
   if (!is.null(wts)) {
     wts <- dat[[wtsname]]
@@ -59,7 +59,7 @@ logistic <- function(dataset, rvar, evar,
     dat <- select_(dat, .dots = paste0("-",wtsname))
   }
 
-  if (any(summarise_each(dat, funs(does_vary)) == FALSE))
+  if (any(summarise_all(dat, funs(does_vary)) == FALSE))
     return("One or more selected variables show no variation. Please select other variables." %>%
            add_class("logistic"))
 
@@ -78,6 +78,9 @@ logistic <- function(dataset, rvar, evar,
   var_check(evar, colnames(dat)[-1], int) %>%
     { vars <<- .$vars; evar <<- .$ev; int <<- .$intv }
 
+  ## add minmax attributes to data
+  mmx <- minmax(dat)
+
   ## scale data
   if ("standardize" %in% check) {
     dat <- scaledf(dat, wts = wts)
@@ -85,15 +88,30 @@ logistic <- function(dataset, rvar, evar,
     dat <- scaledf(dat, scale = FALSE, wts = wts)
   }
 
-  form <- paste(rvar, "~", paste(vars, collapse = " + ")) %>% as.formula
-
-  if ("stepwise" %in% check) {
+  form_upper <- paste(rvar, "~", paste(vars, collapse = " + ")) %>% as.formula
+  form_lower <- paste(rvar, "~ 1") %>% as.formula
+  if ("stepwise" %in% check) check <- sub("stepwise", "stepwise-backward", check)
+  if ("stepwise-backward" %in% check) {
     ## use k = 2 for AIC, use k = log(nrow(dat)) for BIC
-    # model <- sshhr(glm(as.formula(paste(rvar, "~ 1")), weights = wts,
-    model <- sshhr(glm(form, weights = wts, family = binomial(link = "logit"), data = dat)) %>%
-             step(k = 2, scope = list(upper = form), direction = "backward")
+    model <- sshhr(glm(form_upper, weights = wts, family = binomial(link = "logit"), data = dat)) %>%
+      step(k = 2, scope = list(lower = form_lower), direction = "backward")
+
+    ## adding full data even if all variables are not significant
+    model$model <- dat
+  } else if ("stepwise-forward" %in% check) {
+    model <- sshhr(glm(form_lower, weights = wts, family = binomial(link = "logit"), data = dat)) %>%
+      step(k = 2, scope = list(upper = form_upper), direction = "forward")
+
+    ## adding full data even if all variables are not significant
+    model$model <- dat
+  } else if ("stepwise-both" %in% check) {
+    model <- sshhr(glm(form_lower, weights = wts, family = binomial(link = "logit"), data = dat)) %>%
+      step(k = 2, scope = list(lower = form_lower, upper = form_upper), direction = "both")
+
+    ## adding full data even if all variables are not significant
+    model$model <- dat
   } else {
-    model <- sshhr(glm(form, weights = wts, family = binomial(link = "logit"), data = dat))
+    model <- sshhr(glm(form_upper, weights = wts, family = binomial(link = "logit"), data = dat))
   }
 
   ## needed for prediction if standardization or centering is used
@@ -101,6 +119,9 @@ logistic <- function(dataset, rvar, evar,
     attr(model$model, "ms") <- attr(dat, "ms")
     attr(model$model, "sds") <- attr(dat, "sds")
   }
+
+  attr(model$model, "min") <- mmx[["min"]]
+  attr(model$model, "max") <- mmx[["max"]]
 
   coeff <- tidy(model)
   coeff$` ` <- sig_stars(coeff$p.value) %>% format(justify = "left")
@@ -130,12 +151,12 @@ logistic <- function(dataset, rvar, evar,
 
   rm(dat) ## dat not needed elsewhere
 
-  as.list(environment()) %>% add_class("logistic")
+  as.list(environment()) %>% add_class(c("logistic","model"))
 }
 
 #' Summary method for the logistic function
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
 #'
 #' @param object Return value from \code{\link{logistic}}
 #' @param sum_check Optional output. "vif" to show multicollinearity diagnostics. "confint" to show coefficient confidence interval estimates. "odds" to show odds ratios and confidence interval estimates.
@@ -170,11 +191,15 @@ summary.logistic <- function(object,
   if (is.character(object)) return(object)
   if (class(object$model)[1] != 'glm') return(object)
 
-  if ("stepwise" %in% object$check) {
-    cat("-----------------------------------------------\n")
-    cat("Backward stepwise selection of variables\n")
-    cat("-----------------------------------------------\n")
+  if (any(grepl("stepwise", object$check))) {
+    step_type <- if ("stepwise-backward" %in% object$check) "Backward"
+      else if ("stepwise-forward" %in% object$check) "Forward"
+      else "Forward and Backward"
+    cat("----------------------------------------------------\n")
+    cat(step_type, "stepwise selection of variables\n")
+    cat("----------------------------------------------------\n")
   }
+
   cat("Logistic regression (GLM)")
   cat("\nData                 :", object$dataset)
   if (object$data_filter %>% gsub("\\s","",.) != "")
@@ -233,14 +258,14 @@ summary.logistic <- function(object,
       if (length(object$evar) > 1) {
         cat("Variance Inflation Factors\n")
         car::vif(object$model) %>%
-          {if (is.null(dim(.))) . else .[,"GVIF"]} %>% ## needed when factors are included
+          {if (is.null(dim(.))) . else .[,"GVIF^(1/(2*Df))"]} %>% ## needed when factors are included
           data.frame(VIF = ., Rsq = 1 - 1/.) %>%
           .[order(.$VIF, decreasing = TRUE),] %>% ## not using arrange to keep rownames
           round(dec) %>%
           { if (nrow(.) < 8) t(.) else . } %>%
           print
       } else {
-        cat("Insufficient number of explanatory variables selected to calculate\nmulticollinearity diagnostics")
+        cat("Insufficient number of explanatory variables to calculate\nmulticollinearity diagnostics (VIF)\n")
       }
     }
     cat("\n")
@@ -291,7 +316,7 @@ summary.logistic <- function(object,
   }
 
   if (!is_empty(test_var)) {
-    if ("stepwise" %in% object$check) {
+    if (any(grepl("stepwise", object$check))) {
       cat("Model comparisons are not conducted when Stepwise has been selected.\n")
     } else {
       # sub_form <- ". ~ 1"
@@ -363,10 +388,10 @@ summary.logistic <- function(object,
 
 #' Plot method for the logistic function
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
 #'
 #' @param x Return value from \code{\link{logistic}}
-#' @param plots Plots to produce for the specified GLM model. Use "" to avoid showing any plots (default). "hist" shows histograms of all variables in the model. "scatter" shows scatter plots (or box plots for factors) for the response variable with each explanatory variable. "dashboard" is a series of four plots used to visually evaluate model. "coef" provides a coefficient plot
+#' @param plots Plots to produce for the specified GLM model. Use "" to avoid showing any plots (default). "dist" shows histograms (or frequency bar plots) of all variables in the model. "scatter" shows scatter plots (or box plots for factors) for the response variable with each explanatory variable. "dashboard" is a series of four plots used to visually evaluate model. "coef" provides a coefficient plot
 #' @param conf_lev Confidence level to use for coefficient and odds confidence intervals (.95 is the default)
 #' @param intercept Include the intercept in the coefficient plot (TRUE or FALSE). FALSE is the default
 #' @param shiny Did the function call originate inside a shiny app
@@ -396,11 +421,12 @@ plot.logistic <- function(x,
 
   if (class(object$model)[1] != 'glm') return(object)
 
-  if (plots[1] == "")
+  if (is_empty(plots[1]))
     return("Please select a logistic regression plot from the drop-down menu")
 
   model <- ggplot2::fortify(object$model)
-  model$.fitted <- predict(object$model, type = 'response')
+  model$.fitted <- predict(object$model, type = "response")
+
   ## adjustment in case max > 1 (e.g., values are 1 and 2)
   model$.actual <- as.numeric(object$rv) %>% {. - max(.) + 1}
 
@@ -413,16 +439,14 @@ plot.logistic <- function(x,
   ## use orginal data rather than the logical used for estimation
   model[[rvar]] <- object$rv
 
-  if ("hist" %in% plots) {
+  if ("dist" %in% plots) {
     for (i in vars)
-      plot_list[[i]] <- visualize(select_(model, .dots = i), xvar = i, bins = 10, custom = TRUE)
+      plot_list[[paste("dist_", i)]] <- visualize(select_(model, .dots = i), xvar = i, bins = 10, custom = TRUE)
   }
 
   if ("coef" %in% plots) {
 
-    ## no plots if aliased coefficients present
-    # if (anyNA(object$model$coeff))
-      # return("Model has missing coefficient(s) because the set of explanatory variables\nexhibit perfect multicollinearity. No plot shown.")
+    if (nrow(object$coeff) == 1 && !intercept) return("** Model contains only an intercept **")
 
     yl <-
       {if (sum(c("standardize","center") %in% object$check) == 2) {
@@ -463,50 +487,58 @@ plot.logistic <- function(x,
             theme(axis.text.y = element_text(hjust = 0))
   }
 
-
-  if (plots == "scatter") {
+  if ("scatter" %in% plots) {
     for (i in evar) {
       if ("factor" %in% class(model[,i])) {
-        plot_list[[i]] <- ggplot(model, aes_string(x=i, fill=rvar)) +
-                        geom_bar(position = "fill", alpha=.5) +
-                        labs(list(y = ""))
+        plot_list[[paste0("scatter_",i)]] <- ggplot(model, aes_string(x=i, fill=rvar)) +
+                            geom_bar(position = "fill", alpha=.5) +
+                            labs(y = "")
       } else {
-        plot_list[[i]] <-
+        plot_list[[paste0("scatter_",i)]] <-
           visualize(select_(model, .dots = c(i,rvar)), xvar = rvar, yvar = i, check = "jitter", type = "scatter", custom = TRUE)
       }
     }
     nrCol <- 1
   }
 
-  if (plots == "fit") {
+  if ("fit" %in% plots) {
 
-    if (nrow(model) < 20)
+    if (nrow(model) < 30)
       return("Insufficient observations to generate Model fit plot")
 
-    model$.fittedbin <- radiant.data::xtile(model$.fitted, 20)
+    model$.fittedbin <- radiant.data::xtile(model$.fitted, 30)
 
-    df <- group_by_(model, ".fittedbin") %>% summarise(Probability = mean(1 - .fitted))
+    min_bin <- min(model$.fittedbin)
+    max_bin <- max(model$.fittedbin)
+
+    if (prop(model$.actual[model$.fittedbin == min_bin]) < prop(model$.actual[model$.fittedbin == max_bin])) {
+      model$.fittedbin <- 1 + max_bin - model$.fittedbin
+      df <- group_by_(model, ".fittedbin") %>% summarise(Probability = mean(.fitted))
+    } else {
+      df <- group_by_(model, ".fittedbin") %>% summarise(Probability = mean(1 - .fitted))
+    }
+
     plot_list[["fit"]] <-
       visualize(model, xvar = ".fittedbin", yvar = ".actual", type = "bar", custom = TRUE) +
       geom_line(data = df, aes_string(y = "Probability"), color = "blue", size = 1) + ylim(0,1) +
       labs(list(title = "Actual vs Fitted values (binned)", x = "Predicted probability bins", y = "Probability"))
   }
 
-  if (plots == "correlations")
+  if ("correlations" %in% plots)
     return(radiant.basics:::plot.correlation_(select_(model, .dots = vars)))
 
   if (custom)
     if (length(plot_list) == 1) return(plot_list[[1]]) else return(plot_list)
 
   if (length(plot_list) > 0) {
-    sshhr( do.call(gridExtra::arrangeGrob, c(plot_list, list(ncol = nrCol))) ) %>%
-      { if (shiny) . else print(.) }
+    sshhr(gridExtra::grid.arrange(grobs = plot_list, ncol = nrCol)) %>%
+      {if (shiny) . else print(.)}
   }
 }
 
 #' Predict method for the logistic function
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
 #'
 #' @param object Return value from \code{\link{logistic}}
 #' @param pred_data Provide the name of a dataframe to generate predictions (e.g., "titanic"). The dataset must contain all columns used in the estimation
@@ -538,12 +570,13 @@ predict.logistic <- function(object,
                              dec = 3,
                              ...) {
 
+ if (is.character(object)) return(object)
  if ("center" %in% object$check || "standardize" %in% object$check) se <- FALSE
 
   pfun <- function(model, pred, se, conf_lev) {
     pred_val <-
       try(sshhr(
-        predict(object$model, pred, type = 'response', se.fit = se)),
+        predict(model, pred, type = 'response', se.fit = se)),
         silent = TRUE
       )
 
@@ -563,7 +596,7 @@ predict.logistic <- function(object,
     pred_val
   }
 
-  predict.model(object, pfun, "logistic.predict", pred_data, pred_cmd, conf_lev, se, dec)
+  predict_model(object, pfun, "logistic.predict", pred_data, pred_cmd, conf_lev, se, dec)
 }
 
 #' Print method for logistic.predict
@@ -573,11 +606,8 @@ predict.logistic <- function(object,
 #' @param n Number of lines of prediction results to print. Use -1 to print all lines
 #'
 #' @export
-print.logistic.predict <- function(x, ..., n = 10) {
-  print.model.predict(x, ..., n = n,
-                      header = "Logistic regression (GLM)",
-                      lev = attr(x, "lev"))
-}
+print.logistic.predict <- function(x, ..., n = 10)
+  print_predict_model(x, ..., n = n, header = "Logistic regression (GLM)")
 
 #' Deprecated function to store logistic regression residuals and predictions
 #'
@@ -628,4 +658,95 @@ confint_robust <- function (object, parm, level = 0.95, vcov = NULL, ...) {
     ses <- sqrt(diag(vcov))[parm]
     ci[] <- cf[parm] + ses %o% fac
     ci
+}
+
+#' Calculate min and max before standardization
+#'
+#' @param dat Data frame
+#' @return Data frame min and max attributes
+#'
+#' @export
+minmax <- function(dat) {
+  isNum <- sapply(dat, is.numeric)
+  if (sum(isNum) == 0) return(dat)
+  cn <- names(isNum)[isNum]
+
+  mn <- summarise_at(dat, .cols = cn, .funs = funs(min(., na.rm = TRUE)))
+  mx <- summarise_at(dat, .cols = cn, .funs = funs(max(., na.rm = TRUE)))
+
+  list(min = mn, max = mx)
+}
+
+#' Write coefficient table for linear and logistic regression
+#'
+#' @details Write coefficients and importance scores to csv
+#'
+#' @param object A fitted model object of class regress or logistic
+#' @param file A character string naming a file. "" indicates output to the console
+#' @param sort Sort table by variable importance
+#'
+#' @examples
+#' regress(diamonds, rvar = "price", evar = "carat:x", check = "standardize") %>%
+#'   write.coeff(sort = TRUE) %>%
+#'   formatdf(dec = 3)
+#'
+#' @export
+write.coeff <- function(object, file = "", sort = FALSE) {
+
+  if ("regress" %in% class(object)) {
+    mod_class <- "regress"
+  } else if ("logistic" %in% class(object)) {
+    mod_class <- "logistic"
+  } else {
+    "Object is not of class logistic or regress" %T>%
+      message %>%
+      cat("\n\n", file = file)
+    return(invisible())
+  }
+
+  ## calculating the mean and sd for each variable
+  ## extract formula from http://stackoverflow.com/a/9694281/1974918
+  frm <- formula(object$model$terms)
+  mm <- model.matrix(frm, object$model$model)
+  cms <- colMeans(mm, na.rm = TRUE)[-1]
+  csds <- apply(mm, 2, sd_rm)[-1]
+  cmn <- cms * 0
+  cmx <- cmn + 1
+  mn <- attr(object$model$model, "min")
+  nms <- intersect(names(cms), names(mn))
+  dummy <- cmx
+  dummy[nms] <- 0
+  cmn[nms] <- mn[nms]
+  mx <- attr(object$model$model, "max")
+  cmx[nms] <- mx[nms]
+  rm(mm)
+
+  if ("standardize" %in% object$check || "center" %in% object$check) {
+    ms <- attr(object$model$model, "ms")
+    cms[nms] <- ms[nms]
+    sds <- attr(object$model$model, "sds")
+    if (!is_empty(sds)) csds[nms] <- sds[nms]
+    cat("Standardized coefficients selected\n\n", file = file)
+  } else {
+    cat("Standardized coefficients not selected\n\n", file = file)
+  }
+
+  object <- object[["coeff"]][-1,]
+  object$dummy <- dummy
+  object$mean <- cms %>% unlist
+  object$sd <- csds %>% unlist
+  object$min <- cmn %>% unlist
+  object$max <- cmx %>% unlist
+
+  if (mod_class == "logistic")
+    object$importance <- pmax(object$OR, 1/object$OR)
+  else
+    object$importance <- abs(object$coeff)
+
+  if (sort) object <- arrange_(object, "desc(importance)")
+
+  if (!is_empty(file))
+    sshhr(write.table(object, sep = ",", append = TRUE, file = file, row.names = FALSE))
+  else
+    object
 }

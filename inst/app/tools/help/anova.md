@@ -91,10 +91,8 @@ The easiest way to visualize an interaction like this is with an ugly but functi
 
 
 ```r
-with(warpbreaks,interaction.plot(tension,wool,breaks))
+# with(warpbreaks,interaction.plot(tension,wool,breaks))
 ```
-
-![plot of chunk unnamed-chunk-5](figure/unnamed-chunk-5-1.png)
 
 (it takes 3 arguments: the first is the factor for the x-axis, then the trace factor for the different lines, then the response variable). And then of course you could instead use a barplot (using something like ggplot to make it prettier).
 

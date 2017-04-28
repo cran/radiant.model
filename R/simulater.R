@@ -1,6 +1,6 @@
 #' Simulate data for decision analysis
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/simulater.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/simulater.html} for an example in Radiant
 #'
 #' @param const A string listing the constants to include in the analysis (e.g., "cost = 3; size = 4")
 #' @param lnorm A string listing the log-normally distributed random variables to include in the analysis (e.g., "demand 2000 1000" where the first number is the log-mean and the second is the log-standard deviation)
@@ -44,7 +44,7 @@ simulater <- function(const = "",
                       dat = NULL) {
 
   ## remove any non-numbers from seed, including spaces
-  seed %>% gsub("[^0-9]","",.) %>% { if (. != "") set.seed(seed) }
+  seed %>% gsub("[^0-9]","",.) %>% { if (!is_empty(.)) set.seed(seed) }
 
   if (is.null(dat)) {
     dat <- list()
@@ -242,7 +242,7 @@ if (getOption("radiant.testthat", default = FALSE)) {
 
 #' Summary method for the simulater function
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/simulater.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/simulater.html} for an example in Radiant
 #'
 #' @param object Return value from \code{\link{simulater}}
 #' @param dec Number of decimals to show
@@ -290,10 +290,11 @@ summary.simulater <- function(object, dec = 4, ...) {
 
 #' Plot method for the simulater function
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/simulater} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/simulater} for an example in Radiant
 #'
 #' @param x Return value from \code{\link{simulater}}
 #' @param shiny Did the function call originate inside a shiny app
+#' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This opion can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org/} for options.
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
@@ -306,7 +307,7 @@ summary.simulater <- function(object, dec = 4, ...) {
 #' @seealso \code{\link{summary.simulater}} to summarize results
 #'
 #' @export
-plot.simulater <- function(x, shiny = FALSE, ...) {
+plot.simulater <- function(x, shiny = FALSE, custom = FALSE, ...) {
 
   if (is.character(x)) {
     if (x[1] == "error") return(invisible())
@@ -325,8 +326,11 @@ plot.simulater <- function(x, shiny = FALSE, ...) {
       visualize(select_(object, .dots = i), xvar = i, bins = 20, custom = TRUE)
   }
 
-  sshhr( do.call(gridExtra::arrangeGrob, c(plot_list, list(ncol = min(length(plot_list),2)))) ) %>%
-    { if (shiny) . else print(.) }
+  if (custom)
+    if (length(plot_list) == 1) return(plot_list[[1]]) else return(plot_list)
+
+  sshhr(gridExtra::grid.arrange(grobs = plot_list, ncol = min(length(plot_list),2))) %>%
+    {if (shiny) . else print(.)}
 }
 
 #' Repeat simulation
@@ -395,10 +399,10 @@ repeater <- function(nr = 12,
   dat <- sim; rm(sim)
   if (is.character(dat)) dat <- getdata(dat)
 
-  seed %>% gsub("[^0-9]","",.) %>% { if (. != "") set.seed(seed) }
+  seed %>% gsub("[^0-9]","",.) %>% { if (!is_empty(.)) set.seed(seed) }
 
   if (identical(vars, "") && identical(grid, "")) {
-    mess <- c("error",paste0("Select variables to re-simulate and/or a specify a constant\nto change using 'Grid search'"))
+    mess <- c("error",paste0("Select variables to re-simulate and/or a specify a constant\nto change using 'Grid search' when Group by is set to Repeat"))
     return(add_class(mess, "repeater"))
   }
 
@@ -436,7 +440,7 @@ repeater <- function(nr = 12,
   summarize_sim <- function(object) {
     if (fun != "none") {
       object %<>% group_by_(byvar) %>%
-        summarise_each_(make_funs(fun), vars = sum_vars) %>%
+        summarise_at(.cols = sum_vars, .funs = make_funs(fun)) %>%
         set_colnames(c(byvar, sum_vars))
 
       # if (length(sum_vars) == 1 && length(fun) > 1) colnames(object) <- paste0(sum_vars, "_", colnames(object))
@@ -507,14 +511,13 @@ repeater <- function(nr = 12,
       obj <- s[[i]][1]
       fobj <- s[[i]][-1]
       if (length(fobj) > 1) fobj <- paste0(fobj, collapse = "=")
-      # out <- try(do.call(with, list(ret, parse(text = fobj))), silent = TRUE)
-      out <- do.call(with, list(ret, parse(text = fobj)))
+      out <- try(do.call(with, list(ret, parse(text = fobj))), silent = TRUE)
       if (!is(out, 'try-error')) {
         ret[[obj]] <- out
       } else {
         ret[[obj]] <- NA
-        mess <- paste0("Formula was not successfully evaluated:\n\n", strsplit(form,";") %>% unlist %>% paste0(collapse="\n"),"\n\nNote that these formulas can only be applied to selected 'Output variables'")
-        return(mess)
+        mess <- c("error", paste0("Formula was not successfully evaluated:\n\n", strsplit(form,";") %>% unlist %>% paste0(collapse="\n"),"\n\nMessage: ", attr(out,"condition")$message,"\n\nNote that these formulas can only be applied to selected 'Output variables'"))
+        return(add_class(mess, "repeater"))
       }
     }
   }
@@ -590,8 +593,11 @@ summary.repeater <- function(object,
                              ...) {
 
   if (is.character(object)) {
-    if (object[1] == "error") return(cat(object[2]))
-    else object <- getdata(object)
+    if (length(object) == 2 && object[1] == "error") {
+      return(cat(object[2]))
+    } else {
+      object <- getdata(object)
+    }
   }
 
   ## getting the repeater call
@@ -628,10 +634,11 @@ summary.repeater <- function(object,
 #'
 #' @param x Return value from \code{\link{repeater}}
 #' @param shiny Did the function call originate inside a shiny app
+#' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This opion can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org/} for options.
 #' @param ... further arguments passed to or from other methods
 #'
 #' @export
-plot.repeater <- function(x, shiny = FALSE, ...) {
+plot.repeater <- function(x, shiny = FALSE, custom = FALSE, ...) {
 
   if (is.character(x)) {
     if (x[1] == "error") return(invisible())
@@ -662,8 +669,11 @@ plot.repeater <- function(x, shiny = FALSE, ...) {
 
   if (length(plot_list) == 0) return(invisible())
 
-  sshhr( do.call(gridExtra::arrangeGrob, c(plot_list, list(ncol = min(length(plot_list),2)))) ) %>%
-    { if (shiny) . else print(.) }
+  if (custom)
+    if (length(plot_list) == 1) return(plot_list[[1]]) else return(plot_list)
+
+  sshhr(gridExtra::grid.arrange(grobs = plot_list, ncol = min(length(plot_list),2))) %>%
+    {if (shiny) . else print(.)}
 }
 
 #' Print simulation summary
@@ -688,7 +698,7 @@ sim_summary <- function(dat, dc = getclass(dat), fun = "", dec = 4) {
       cn <- names(dc)[isConst]
       cat("Constants:\n")
       select(dat, which(isConst)) %>% na.omit %>% .[1,] %>% as.data.frame %>%
-        round(dec) %>% mutate_each(funs(formatC(., big.mark = ",", digits = dec, format = "f"))) %>%
+        round(dec) %>% mutate_all(funs(formatC(., big.mark = ",", digits = dec, format = "f"))) %>%
         set_rownames("") %>% set_colnames(cn) %>%
         print
       cat("\n")
@@ -701,8 +711,8 @@ sim_summary <- function(dat, dc = getclass(dat), fun = "", dec = 4) {
       select(dat, which(isNum & !isConst)) %>%
         tidyr::gather_("variable", "values", cn) %>%
         group_by_("variable") %>%
-        summarise_each(funs(n = length, mean = mean_rm, sd = sd_rm, min = min_rm, `25%` = p25,
-                       median = median_rm, `75%` = p75, max = max_rm)) %>%
+        summarise_all(funs(n = length, mean = mean_rm, sd = sd_rm, min = min_rm, `25%` = p25,
+                           median = median_rm, `75%` = p75, max = max_rm)) %>%
         { if (fun == "" || fun == "none") . else {.[[1]] <- paste0(fun, " of ", .[[1]])}; . } %>%
         { .[[1]] <- format(.[[1]], justify = "left"); .} %>%
         data.frame(check.names = FALSE) %>%
@@ -714,7 +724,7 @@ sim_summary <- function(dat, dc = getclass(dat), fun = "", dec = 4) {
 
   if (sum(isLogic) > 0) {
     cat("Logicals:\n")
-    select(dat, which(isLogic)) %>% summarise_each(funs(sum, mean)) %>% round(dec) %>%
+    select(dat, which(isLogic)) %>% summarise_all(funs(sum, mean)) %>% round(dec) %>%
       matrix(ncol = 2) %>% set_colnames(c("TRUE (nr)  ", "TRUE (prop)")) %>%
       set_rownames(names(dat)[isLogic]) %>% print
     cat("\n")

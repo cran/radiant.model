@@ -2,10 +2,10 @@
 logit_show_interactions <- c("None" = "", "2-way" = 2, "3-way" = 3)
 logit_predict <- c("None" = "none", "Data" = "data","Command" = "cmd", "Data & Command" = "datacmd")
 logit_check <- c("Standardize" = "standardize", "Center" = "center",
-               "Stepwise" = "stepwise")
+               "Stepwise" = "stepwise-backward")
 logit_sum_check <- c("VIF" = "vif", "Confidence intervals" = "confint",
                    "Odds" = "odds")
-logit_plots <- c("None" = "", "Histograms" = "hist",
+logit_plots <- c("None" = "", "Distribution" = "dist",
                  "Correlations" = "correlations", "Scatter" = "scatter",
                  "Model fit" = "fit", "Coefficient plot" = "coef")
 
@@ -85,8 +85,9 @@ logit_pred_plot_inputs <- reactive({
 })
 
 output$ui_logit_rvar <- renderUI({
-  # req(input$dataset)
- 	vars <- two_level_vars()
+  withProgress(message = "Acquiring variable information", value = 1, {
+ 	  vars <- two_level_vars()
+  })
   selectInput(inputId = "logit_rvar", label = "Response variable:", choices = vars,
   	selected = state_single("logit_rvar",vars), multiple = FALSE)
 })
@@ -168,6 +169,11 @@ output$ui_logit_int <- renderUI({
   	multiple = TRUE, size = min(4,length(choices)), selectize = FALSE)
 })
 
+## reset prediction settings when the dataset changes
+observeEvent(input$dataset, {
+  updateSelectInput(session = session, inputId = "logit_predict", selected = "none")
+})
+
 output$ui_logit_predict_plot <- renderUI({
   predict_plot_controls("logit")
 })
@@ -205,12 +211,6 @@ output$ui_logistic <- renderUI({
             tags$td(actionButton("logit_store_pred", "Store"), style="padding-top:30px;")
           )
         )
-        # conditionalPanel("input.logit_predict == 'cmd'",
-        #   tags$table(
-        #     tags$td(textInput("logit_store_pred_dat_name", "Store predicted dataset:", state_init("logit_store_pred_dat_name",paste0(input$dataset,"_pred")))),
-        #     tags$td(actionButton("logit_store_pred", "Store"), style="padding-top:30px;")
-        #   )
-        # )
       )
     ),
     conditionalPanel(condition = "input.tabs_logistic == 'Plot'",
@@ -222,9 +222,6 @@ output$ui_logistic <- renderUI({
       )
     ),
     wellPanel(
-      # checkboxInput("logit_pause", "Pause estimation", state_init("logit_pause", FALSE)),
-    	# radioButtons(inputId = "logit_link", label = NULL, logit_link,
-    	# 	selected = state_init("logit_link","logit"), inline = TRUE),
 	    uiOutput("ui_logit_rvar"),
       uiOutput("ui_logit_lev"),
 	    uiOutput("ui_logit_evar"),
@@ -259,7 +256,7 @@ output$ui_logistic <- renderUI({
         )
       )
 	  ),
-  	help_and_report(modal_title = "Logist regression (GLM)", fun_name = "logistic",
+  	help_and_report(modal_title = "Logistic regression (GLM)", fun_name = "logistic",
   	                help_file = inclRmd(file.path(getOption("radiant.path.model"),"app/tools/help/logistic.Rmd")))
 	)
 })
@@ -273,7 +270,7 @@ logit_plot <- reactive({
   plot_width <- 650
   nrVars <- length(input$logit_evar) + 1
 
-  if (input$logit_plots == 'hist') plot_height <- (plot_height / 2) * ceiling(nrVars / 2)
+  if (input$logit_plots == 'dist') plot_height <- (plot_height / 2) * ceiling(nrVars / 2)
   if (input$logit_plots == 'fit') plot_width <- 1.5 * plot_width
   if (input$logit_plots == "correlations") { plot_height <- 150 * nrVars; plot_width <- 150 * nrVars }
   if (input$logit_plots == 'scatter') plot_height <- 300 * nrVars
@@ -342,7 +339,7 @@ logit_available <- reactive({
   req(input$logit_lev)
   req(input$logit_wts == "None" || available(input$logit_wts))
 
-  withProgress(message = 'Estimating model', value = 1,
+  withProgress(message = "Estimating model", value = 1,
     do.call(logistic, logit_inputs())
   )
 })
@@ -408,6 +405,7 @@ observeEvent(input$logistic_report, {
   figs <- FALSE
   if (!is_empty(input$logit_plots)) {
     inp_out[[2]] <- clean_args(logit_plot_inputs(), logit_plot_args[-1])
+    inp_out[[2]]$custom <- FALSE
     outputs <- c(outputs, "plot")
     figs <- TRUE
   }
@@ -419,12 +417,11 @@ observeEvent(input$logistic_report, {
     inp_out[[2 + figs]] <- pred_args
 
     outputs <- c(outputs,"pred <- predict")
-    dataset <- if (input$logit_predict %in% c("data","datacmd")) input$logit_pred_data else input$dataset
-    xcmd <-
-      paste0("print(pred, n = 10)\nstore(pred, data = '", dataset, "', name = '", input$logit_store_pred_name,"')\n") %>%
-      paste0("# write.csv(pred, file = '~/logit_predictions.csv', row.names = FALSE)")
 
-    if (input$logit_predict == "cmd") xcmd <- ""
+    xcmd <- paste0("print(pred, n = 10)")
+    if (input$logit_predict %in% c("data","datacmd"))
+      xcmd <- paste0(xcmd, "\nstore(pred, data = \"", input$logit_pred_data, "\", name = \"", input$logit_store_pred_name,"\")")
+    xcmd <- paste0(xcmd, "\n# write.csv(pred, file = \"~/logit_predictions.csv\", row.names = FALSE)")
 
     if (input$logit_pred_plot && !is_empty(input$logit_xvar)) {
       inp_out[[3 + figs]] <- clean_args(logit_pred_plot_inputs(), logit_pred_plot_args[-1])
@@ -466,15 +463,7 @@ output$dl_logit_coef <- downloadHandler(
   filename = function() { "logit_coefficients.csv" },
   content = function(file) {
     if (pressed(input$logit_run)) {
-      ret <- .logistic()[["coeff"]][-1,]
-      if ("standardize" %in% input$logit_check) {
-        ret$importance <- pmax(ret$OR, 1/ret$OR)
-        cat("Standardized coefficients selected\n\n", file = file)
-        sshhr(write.table(ret, sep = ",", append = TRUE, file = file, row.names = FALSE))
-      } else {
-        cat("Standardized coefficients not selected\n\n", file = file)
-        sshhr(write.table(ret, sep = ",", append = TRUE, file = file, row.names = FALSE))
-      }
+      write.coeff(.logistic(), file = file)
     } else {
       cat("No output available. Press the Estimate button to generate results", file = file)
     }

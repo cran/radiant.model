@@ -17,7 +17,7 @@
 Summary method for the simulater function
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/simulater.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/simulater.html} for an example in Radiant
 }
 \examples{
 result <- simulater(norm = "demand 2000 1000")
@@ -29,4 +29,3 @@ summary(result)
 
 \code{\link{plot.simulater}} to plot results
 }
-

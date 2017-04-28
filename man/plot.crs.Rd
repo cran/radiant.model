@@ -4,12 +4,10 @@
 \alias{plot.crs}
 \title{Plot method for the crs function}
 \usage{
-\method{plot}{crs}(x, shiny = FALSE, ...)
+\method{plot}{crs}(x, ...)
 }
 \arguments{
 \item{x}{Return value from \code{\link{crs}}}
-
-\item{shiny}{Did the function call originate inside a shiny app}
 
 \item{...}{further arguments passed to or from other methods}
 }
@@ -17,11 +15,10 @@
 Plot method for the crs function
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/crs.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/crs.html} for an example in Radiant
 }
 \seealso{
 \code{\link{crs}} to generate results
 
 \code{\link{summary.crs}} to summarize results
 }
-

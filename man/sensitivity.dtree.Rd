@@ -5,7 +5,7 @@
 \title{Evaluate sensitivity of the decision tree}
 \usage{
 \method{sensitivity}{dtree}(object, vars = NULL, decs = NULL,
-  shiny = FALSE, ...)
+  shiny = FALSE, custom = FALSE, ...)
 }
 \arguments{
 \item{object}{Return value from \code{\link{dtree}}}
@@ -16,12 +16,20 @@
 
 \item{shiny}{Did the function call originate inside a shiny app}
 
+\item{custom}{Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This opion can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org/} for options.}
+
 \item{...}{Additional arguments}
 }
 \description{
 Evaluate sensitivity of the decision tree
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
 }
+\seealso{
+\code{\link{dtree}} to generate the result
 
+\code{\link{plot.dtree}} to summarize results
+
+\code{\link{summary.dtree}} to summarize results
+}

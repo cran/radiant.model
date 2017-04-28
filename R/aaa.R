@@ -1,21 +1,22 @@
 # to avoid 'no visible binding for global variable' NOTE
 globalVariables(c(".","n",".resid","null.deviance","r_environment",".fitted","Predictor",
-                  "total","TN","FN","FP","TP","total"))
+                  "total","TN","FN","FP","TP","total","r_data"))
 
 #' radiant.model
 #'
 #' @name radiant.model
 #' @docType package
 #' @import radiant.data shiny ggplot2
-#' @importFrom gridExtra arrangeGrob
-#' @importFrom dplyr arrange select select_ filter mutate mutate_ mutate_each_ funs group_by group_by_ summarise summarise_ summarise_each summarise_each_ slice as_data_frame bind_cols bind_rows desc first last min_rank data_frame
+#' @importFrom gridExtra grid.arrange 
+#' @importFrom dplyr mutate_at mutate_all summarise_at summarise_all arrange select select_ filter mutate mutate_ funs group_by group_by_ summarise summarise_ slice as_data_frame bind_cols bind_rows desc first last min_rank data_frame inner_join arrange_ ungroup
 #' @importFrom magrittr %>% %<>% %T>% set_colnames set_rownames set_names extract2
-#' @importFrom tidyr spread_ gather_
+#' @importFrom tidyr spread_ gather_ gather
 #' @importFrom lubridate now
 #' @importFrom pryr where
 #' @importFrom DiagrammeR DiagrammeROutput renderDiagrammeR DiagrammeR mermaid
-#' @importFrom stats anova as.formula binomial coef confint confint.default cor deviance dnorm glm lm na.omit pnorm predict qnorm sd setNames step update weighted.mean wilcox.test rbinom rlnorm rnorm runif terms
-#' @importFrom utils head tail relist as.relistable
+#' @importFrom stats anova as.formula binomial coef confint confint.default cor deviance dnorm glm lm na.omit pnorm predict qnorm sd setNames step update weighted.mean wilcox.test rbinom rlnorm rnorm runif terms quantile
+#' @importFrom utils head tail relist as.relistable combn capture.output write.table
+#' @importFrom stats residuals formula model.matrix
 #' @importFrom methods is
 #' @importFrom import from
 NULL
@@ -63,4 +64,13 @@ NULL
 #' @name dvd
 #' @usage data(dvd)
 #' @format A data frame with 20,000 rows and 4 variables
+NULL
+
+#' Movie ratings
+#' @details Use collaborative filtering to create recommendations based on ratings from existing users. Description provided in attr(df,"description")
+#' @docType data
+#' @keywords datasets
+#' @name cf
+#' @usage data(cf)
+#' @format A data frame with 110 rows and 4 variables
 NULL

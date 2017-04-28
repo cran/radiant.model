@@ -4,7 +4,8 @@
 \alias{plot.evalbin}
 \title{Plot method for the evalbin function}
 \usage{
-\method{plot}{evalbin}(x, plots = c("lift", "gains"), shiny = FALSE, ...)
+\method{plot}{evalbin}(x, plots = c("lift", "gains"), shiny = FALSE,
+  custom = FALSE, ...)
 }
 \arguments{
 \item{x}{Return value from \code{\link{evalbin}}}
@@ -13,13 +14,15 @@
 
 \item{shiny}{Did the function call originate inside a shiny app}
 
+\item{custom}{Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This opion can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org/} for options.}
+
 \item{...}{further arguments passed to or from other methods}
 }
 \description{
 Plot method for the evalbin function
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
 }
 \examples{
 evalbin("titanic", "age", "survived") \%>\% plot
@@ -33,4 +36,3 @@ evalbin("titanic", c("age","fare"), "survived") \%>\% summary
 
 \code{\link{summary.evalbin}} to summarize results
 }
-

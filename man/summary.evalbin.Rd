@@ -9,7 +9,7 @@
 \arguments{
 \item{object}{Return value from \code{\link{evalbin}}}
 
-\item{prn}{Print model evalbin results (default is TRUE)}
+\item{prn}{Print full table of measures per model and bin}
 
 \item{...}{further arguments passed to or from other methods}
 }
@@ -17,7 +17,7 @@
 Summary method for the evalbin function
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
 }
 \examples{
 evalbin("titanic", "age", "survived") \%>\% summary
@@ -29,4 +29,3 @@ evalbin("titanic", c("age","fare"), "survived") \%>\% summary
 
 \code{\link{plot.evalbin}} to plot results
 }
-

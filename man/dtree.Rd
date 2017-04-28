@@ -4,12 +4,14 @@
 \alias{dtree}
 \title{Create a decision tree}
 \usage{
-dtree(yl, opt = "max")
+dtree(yl, opt = "max", base = character(0))
 }
 \arguments{
 \item{yl}{A yaml string or a list (e.g., from yaml::yaml.load_file())}
 
 \item{opt}{Find the maximum ("max") or minimum ("min") value for each decision node}
+
+\item{base}{List of variable definitions from a base tree used when calling a sub-tree}
 }
 \value{
 A list with the initial tree and the calculated tree
@@ -18,11 +20,12 @@ A list with the initial tree and the calculated tree
 Create a decision tree
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
 }
 \seealso{
 \code{\link{summary.dtree}} to summarize results
 
 \code{\link{plot.dtree}} to plot results
-}
 
+\code{\link{sensitivity.dtree}} to plot results
+}

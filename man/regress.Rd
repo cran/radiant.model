@@ -15,7 +15,7 @@ regress(dataset, rvar, evar, int = "", check = "", data_filter = "")
 
 \item{int}{Interaction terms to include in the model}
 
-\item{check}{"standardize" to see standardized coefficient estimates. "stepwise" to apply step-wise selection of variables in estimation}
+\item{check}{Use "standardize" to see standardized coefficient estimates. Use "stepwise-backward" (or "stepwise-forward", or "stepwise-both") to apply step-wise selection of variables in estimation}
 
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
 }
@@ -26,7 +26,7 @@ A list of all variables variables used in the regress function as an object of c
 Linear regression using OLS
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/regress.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/regress.html} for an example in Radiant
 }
 \examples{
 result <- regress("diamonds", "price", c("carat","clarity"))
@@ -40,4 +40,3 @@ result <- regress("diamonds", "price", c("carat","clarity"), check = "standardiz
 
 \code{\link{predict.regress}} to generate predictions
 }
-

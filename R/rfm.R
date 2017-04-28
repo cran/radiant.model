@@ -1,6 +1,6 @@
 # #' RFM model
 # #'
-# #' @details See \url{http://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
+# #' @details See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
 # #'
 # #' @param dataset Dataset name (string). This can be a dataframe in the global environment or an element in an r_data list from Radiant
 # #' @param pred Prediction or predictor
@@ -39,7 +39,7 @@
 
 # 	vars <- c(pred, rvar)
 # 	dat <- getdata(dataset, vars, filt = data_filter)
-# 	if (!is_string(dataset)) dataset <- "-----"
+# 	if (!is_string(dataset)) dataset <- deparse(substitute(dataset)) %>% set_attr("df", TRUE)
 
 #   ## converting factors for interger (1st level)
 #   ## see also R/visualize.R
@@ -130,7 +130,7 @@
 
 # # #' Summary method for the evalbin function
 # # #'
-# # #' @details See \url{http://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
+# # #' @details See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
 # # #'
 # # #' @param object Return value from \code{\link{evalbin}}
 # # #' @param prn Print model evalbin results (default is TRUE)
@@ -153,7 +153,7 @@
 # # 		cat("Data      :", object$dataset, "\n")
 # # 		if (object$data_filter %>% gsub("\\s","",.) != "")
 # # 			cat("Filter    :", gsub("\\n","", object$data_filter), "\n")
-# # 		cat("Perdictors:", paste0(object$pred, collapse=", "), "\n")
+# # 		cat("Predictors:", paste0(object$pred, collapse=", "), "\n")
 # # 		cat("Response  :", object$rvar, "\n")
 # # 	  cat("Level     :", object$lev, "in", object$rvar, "\n")
 # # 		cat("Method    :", gsub("radiant.model::","",object$method), "\n")
@@ -168,7 +168,7 @@
 
 # # #' Plot method for the evalbin function
 # # #'
-# # #' @details See \url{http://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
+# # #' @details See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
 # # #'
 # # #' @param x Return value from \code{\link{evalbin}}
 # # #' @param plots Plots to return
@@ -230,13 +230,13 @@
 # # 			plot_list[[i]] <- plot_list[[i]] + labs(colour = "Predictor")
 # # 	}
 
-# # 	sshhr( do.call(gridExtra::arrangeGrob, c(plot_list, list(ncol = 1))) ) %>%
+# # 	sshhr( do.call(gridExtra::grid.arrange, c(plot_list, list(ncol = 1))) ) %>%
 # # 	 	{ if (shiny) . else print(.) }
 # # }
 
 # # #' Area Under the Curve (AUC)
 # # #'
-# # #' @details See \url{http://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
+# # #' @details See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
 # # #'
 # # #' @param pred Prediction or predictor
 # # #' @param rvar Response variable

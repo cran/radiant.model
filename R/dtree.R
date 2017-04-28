@@ -1,6 +1,6 @@
 #' Parse yaml input for dtree to provide (more) useful error messages
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
 #'
 #' @param yl A yaml string
 #'
@@ -13,6 +13,9 @@
 #' @export
 dtree_parser <- function(yl) {
   if (is_string(yl)) yl <- unlist(strsplit(yl, "\n"))
+
+  ## remove characters that may cause problems in shinyAce
+  yl %<>% gsub("[\x80-\xFF]", "", .) %>% gsub("\r","\n",.)
 
   ## collect errors
   err <- c()
@@ -142,10 +145,11 @@ if (getOption("radiant.testthat", default = FALSE)) {
 
 #' Create a decision tree
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
 #'
 #' @param yl A yaml string or a list (e.g., from yaml::yaml.load_file())
 #' @param opt Find the maximum ("max") or minimum ("min") value for each decision node
+#' @param base List of variable definitions from a base tree used when calling a sub-tree
 #'
 #' @return A list with the initial tree and the calculated tree
 #'
@@ -155,9 +159,10 @@ if (getOption("radiant.testthat", default = FALSE)) {
 #'
 #' @seealso \code{\link{summary.dtree}} to summarize results
 #' @seealso \code{\link{plot.dtree}} to plot results
+#' @seealso \code{\link{sensitivity.dtree}} to plot results
 #'
 #' @export
-dtree <- function(yl, opt = "max") {
+dtree <- function(yl, opt = "max", base = character(0)) {
 
   ## Adapted from https://github.com/gluc/useR15/blob/master/01_showcase/02_decision_tree.R
   ## load yaml from string if list not provide
@@ -165,10 +170,9 @@ dtree <- function(yl, opt = "max") {
 
     ## get input file from r_data
     if (!grepl("\\n", yl)) yl <- getdata(yl)
-
     yl <- dtree_parser(yl)
-    ## cleanup the input file
 
+    ## cleanup the input file
     # return(paste0(paste0("\n**\n", yl, collapse = "\n"), "\n**\n") %>% add_class("dtree")
 
     if ("dtree" %in% class(yl)) return(yl)
@@ -192,23 +196,46 @@ dtree <- function(yl, opt = "max") {
     return(add_class(err, "dtree"))
   }
 
+
+  ## getting variables from base if available
+  if (!is.null(yl$variables) && is.character(yl$variables[1])) {
+    if (exists("r_data") && !is.null(r_data$dtree_list)) {
+      if (!yl$variables %in% r_data$dtree_list) {
+        err <- "**\nThe tree listed is not available. Please provide another name.\n**"
+        return(add_class(err, "dtree"))
+      }
+      yl$variables <-
+        getdata(yl$variables) %>%
+        dtree_parser %>%
+        {yaml::yaml.load(.)} %>%
+        .$variables %>%
+        .[!grepl("dtree\\(.*\\)", .)]
+    }
+  }
+
   vars <- ""
+
+  ## can call a sub-tree that doesn't have any variables
+  if (length(base) > 0) {
+    base <- base[!grepl("dtree\\(.*\\)", base)]
+    if(is.null(yl$variables)) yl$variables <- base
+  }
+
   if (!is.null(yl$variables)) {
-    # library(radiant.model)
-    # yl <- readLines("https://raw.githubusercontent.com/radiant-rstats/docs/gh-pages/examples/VMR-case-E.yaml") %>%
-    #   paste0(collapse = "\n")
-    # yl <- dtree_parser(yl)
-    # yl <- yaml::yaml.load(yl)
 
     vars <- yl$variables
+
+    ## overwrite the values in vars that are also in base
+    if (length(base) > 0) vars[names(base)] <- base
+
     vn <- names(vars)
 
     if (length(vn) > 1) {
-      ret <- sapply(vn, function(x) grepl(x, vn)) %>% set_rownames(vn)
-      prob <- colSums(ret) > 1
-      if (any(prob)) {
+      ret <- sapply(vn, function(x) grepl(x, vn, fixed = TRUE)) %>% set_rownames(vn)
+      overlap <- colSums(ret) > 1
+      if (any(overlap)) {
         cat("Some of the variable labels overlap. Each label should be unique\nand not be part of another label. An easy fix may be to use\nsomewhat longer labels (e.g., success instead of S). To use\nsearch-and-replace in the editor press CTRL-F (CMD-F on mac) twice.\n\n")
-        ret <- ret[,prob, drop = FALSE]
+        ret <- ret[,overlap, drop = FALSE]
         for (i in 1:ncol(ret)) {
           tmp <- names(ret[ret[,i],i])
           cat(tmp[1], "is part of", paste0(tail(tmp,-1), collapse = ", "), "\n")
@@ -217,11 +244,28 @@ dtree <- function(yl, opt = "max") {
       }
     }
 
-    for (i in 2:max(2,length(vn))) {
-      vars <- gsub(vn[i-1], paste0("(",vars[[i-1]],")"), vars, fixed = TRUE)
-      vars <- sapply(vars, function(x) ifelse(grepl("[A-Za-z]+",x), x, eval(parse(text = x))))
+    ## is there a subtree to evaluate?
+    for (i in vn) {
+      if (grepl("dtree\\(.*\\)", vars[i])) {
+        tree <- gsub(".*?([\'\"]+[ A-z0-9_\\.\\-]+[\'\"]+).*","\\1",vars[i]) %>% gsub("[\"\']","",.)
+        if (exists("r_data") && !is.null(r_data$dtree_list) && tree %in% r_data$dtree_list) {
+          cmd <- gsub("\\)\\s*$", paste0(", base = ", list(vars[!grepl("dtree\\(.*\\)", vars)]), "\\)"), vars[i])
+          ret <- try(eval(parse(text = cmd)), silent = TRUE)
+
+          if (is(ret, 'try-error') || !is.list(ret)) {
+            return("**\nThe dtree command was invalid. Please fix it and try again\n**" %>% add_class("dtree"))
+          } else {
+            if (!is.null(ret$jl)) {
+              vars[i] <- ret$jl$Get(function(x) x$payoff)[1]
+            } else {
+              vars[i] <- "No payoff available. Incorrect tree specification"
+            }
+          }
+        } else {
+          vars[i] <- paste0("Decision tree \"", tree, "\" is not available")
+        }
+      }
     }
-    names(vars) <- vn
 
     for (i in 2:max(2,length(vn))) {
       vars <- gsub(vn[i-1], paste0("(",vars[[i-1]],")"), vars, fixed = TRUE)
@@ -236,6 +280,19 @@ dtree <- function(yl, opt = "max") {
       print(as.data.frame(isNot) %>% set_names(""))
       return("\nUpdate the input file and try again." %>% add_class("dtree"))
     }
+
+    ## cycle through a nested list recursively
+    ## based on http://stackoverflow.com/a/26163152/1974918
+    nlapply <- function(x, fun){
+      if(is.list(x)){
+        lapply(x, nlapply, fun)
+      } else {
+        fun(x)
+      }
+    }
+
+    if (any(unlist(nlapply(yl, is.null))))
+      return("**\nOne or more payoffs or probabilities were not specified.\nUpdate the input file and try again\n**" %>% add_class("dtree"))
 
     ## based on http://stackoverflow.com/a/14656351/1974918
     tmp <- as.relistable(yl[setdiff(names(yl),"variables")]) %>% unlist
@@ -257,15 +314,6 @@ dtree <- function(yl, opt = "max") {
     # toNum <- function(x) if (grepl("[A-Za-z]+", x)) x else as.numeric(eval(parse(text = x)))
     toNum <- function(x) if (grepl("[A-Za-z]+", x)) x else as.numeric(x)
 
-    ## cycle through a nested list recursively
-    ## based on http://stackoverflow.com/a/26163152/1974918
-    nlapply <- function(x, fun){
-      if(is.list(x)){
-        lapply(x, nlapply, fun)
-      } else {
-        fun(x)
-      }
-    }
     tmp <- nlapply(tmp, toNum)
 
     ## convert list to node object
@@ -285,7 +333,6 @@ dtree <- function(yl, opt = "max") {
   jl_init <- data.tree::Clone(jl)
 
   chance_payoff <- function(node) {
-    # if (is.null(node$payoff) || is.null(node$p)) {
     if (!isNum(node$payoff) || !isNum(node$p))  0
     else node$payoff * node$p
   }
@@ -293,21 +340,37 @@ dtree <- function(yl, opt = "max") {
   decision_payoff <- function(node)
     if(!isNum(node$payoff)) 0 else node$payoff
 
+  prob_checker <- function(node)
+    if (!isNum(node$p)) 0 else node$p
+
   type_none <- ""
+  prob_check <- ""
   calc_payoff <- function(x) {
     if (is_empty(x$type)) {
       x$payoff <- 0
       x$type <- "NONE"
-      type_none <<- "One or more nodes do not have a 'type'. Search for 'NONE' in the output\nbelow and then update the input file"
-    } else if (x$type == 'chance') x$payoff <- sum(sapply(x$children, chance_payoff))
-    else if (x$type == 'decision') x$payoff <- get(opt)(sapply(x$children, decision_payoff))
+      type_none <<- "One or more nodes do not have a 'type'. Check and update the input file"
+    } else if (x$type == 'chance') {
+      x$payoff <- sum(sapply(x$children, chance_payoff))
+
+      probs <- sapply(x$children, prob_checker)
+      if (min(probs) < 0) {
+        prob_check <<- "One or more probabilities are less than 0.\nPlease correct the inputs and re-run the analysis"
+      } else if (max(probs) > 1) {
+        prob_check <<- "One or more probabilities are more than 1.\nPlease correct the inputs and re-run the analysis"
+      } else if (round(sum(probs),2) != 1) {
+        prob_check <<- "Probabilities for one or more chance nodes do not sum to 1.\nPlease correct the inputs and re-run the analysis"
+      }
+
+    } else if (x$type == 'decision') {
+      x$payoff <- get(opt)(sapply(x$children, decision_payoff))
+    }
 
     ## subtract cost if specified
     if (isNum(x$cost)) x$payoff <- x$payoff - x$cost
   }
 
-  # err <- try(jl$Do(calc_payoff, traversal = "post-order", filterFun = data.tree::isNotLeaf), silent = TRUE)
-  err <- jl$Do(calc_payoff, traversal = "post-order", filterFun = data.tree::isNotLeaf)
+  err <- try(jl$Do(calc_payoff, traversal = "post-order", filterFun = data.tree::isNotLeaf), silent = TRUE)
 
   if (is(err, 'try-error')) {
     err <- paste0("**\nError calculating payoffs associated with a chance or decision node.\nPlease check that each terminal node has a payoff and that probabilities\nare correctly specificied\n**")
@@ -316,6 +379,7 @@ dtree <- function(yl, opt = "max") {
 
   decision <- function(x) {
     po <- sapply(x$children, decision_payoff)
+    if (isNum(x$cost)) po <- po - x$cost
     x$decision <- names(po[po == x$payoff])
   }
 
@@ -326,13 +390,15 @@ dtree <- function(yl, opt = "max") {
     return(err %>% add_class("dtree"))
   }
 
-  list(jl_init = jl_init, jl = jl, yl = yl, vars = vars, opt = opt, type_none = type_none) %>%
+  list(jl_init = jl_init, jl = jl, yl = yl, vars = vars, opt = opt,
+       type_none = type_none, prob_check = prob_check,
+       payoff = jl$Get(function(x) x$payoff)) %>%
     add_class("dtree")
 }
 
 #' Summary method for the dtree function
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
 #'
 #' @param object Return value from \code{\link{simulater}}
 #' @param ... further arguments passed to or from other methods
@@ -341,6 +407,7 @@ dtree <- function(yl, opt = "max") {
 #'
 #' @seealso \code{\link{dtree}} to generate the results
 #' @seealso \code{\link{plot.dtree}} to plot results
+#' @seealso \code{\link{sensitivity.dtree}} to plot results
 #'
 #' @export
 summary.dtree <- function(object, ...) {
@@ -369,7 +436,6 @@ summary.dtree <- function(object, ...) {
     data.tree::Traverse(jl) %>%
       {data.frame(
         ` ` = data.tree::Get(.,"levelName"),
-        # Probability = Get(., "p", format = FormatPercent),
         Probability = data.tree::Get(., "p", format = print_percent),
         Payoff = data.tree::Get(., "payoff", format = print_money),
         Cost = data.tree::Get(., "cost", format = print_money),
@@ -381,41 +447,49 @@ summary.dtree <- function(object, ...) {
 
   if (all(object$vars != "")) {
     cat("Input values:\n")
-    # print(as.data.frame(object$vars) %>% set_names("") %>% round(4))
     print(as.data.frame(object$vars) %>% set_names(""))
-    cat("\n\n")
+    cat("\n")
   }
 
   ## initial setup
   if (object$type_none != "") {
     cat(paste0("\n\n**\n",object$type_none,"\n**\n\n"))
   } else {
-    cat("Initial decision tree:\n")
-    format_dtree(object$jl_init) %>% print(row.names = FALSE)
-  }
 
-  cat("\n\nFinal decision tree:\n")
-  format_dtree(object$jl) %>% print(row.names = FALSE)
+    if (object$prob_check != "")
+      cat(paste0("**\n",object$prob_check,"\n**\n\n"))
+
+    cat("\nInitial decision tree:\n")
+    format_dtree(object$jl_init) %>% print(row.names = FALSE)
+
+    cat("\n\nFinal decision tree:\n")
+    format_dtree(object$jl) %>% print(row.names = FALSE)
+  }
 }
 
 #' Plot method for the dtree function
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
 #'
 #' @param x Return value from \code{\link{dtree}}
 #' @param symbol Monetary symbol to use ($ is the default)
 #' @param dec Decimal places to round results to
 #' @param final If TRUE plot the decision tree solution, else the initial decision tree
-#' @param shiny Did the function call originate inside a shiny app
+#' @param orient Plot orientation: LR for vertical and TD for horizontal
 #' @param ... further arguments passed to or from other methods
 #'
 #' @importFrom data.tree Traverse Get isNotRoot
+#' @importFrom DiagrammeR DiagrammeR mermaid
 #'
 #' @seealso \code{\link{dtree}} to generate the result
 #' @seealso \code{\link{summary.dtree}} to summarize results
+#' @seealso \code{\link{sensitivity.dtree}} to plot results
 #'
 #' @export
-plot.dtree <- function(x, symbol = "$", dec = 2, final = FALSE, shiny = FALSE, ...) {
+plot.dtree <- function(x, symbol = "$", dec = 2, final = FALSE, orient = "LR", ...) {
+
+  ## avoid error when dec is missing
+  if (is_not(dec)) dec <- 2
 
   isNum <- function(x) !is_not(x) && !grepl("[A-Za-z]+", x)
 
@@ -432,6 +506,11 @@ plot.dtree <- function(x, symbol = "$", dec = 2, final = FALSE, shiny = FALSE, .
 
   ## create start labels
   FromLabel <- function(node) {
+
+    ## testing
+    # if (node$isRoot) return (node$id)
+    ## testing
+
     if (node$parent$isRoot) ToLabel(node$parent)
     else as.character(node$parent$id)
   }
@@ -471,8 +550,10 @@ plot.dtree <- function(x, symbol = "$", dec = 2, final = FALSE, shiny = FALSE, .
     paste0(" ", node$id, lbl)
   }
 
-  style_decision <- jl$Get("id", filterFun = function(x) x$type == "decision")
+  style_decision <- jl$Get("id", filterFun = function(x) x$type == "decision" && is.null(x$cost))
   if (is.null(style_decision)) style_decision <- "id_null"
+  style_decision_with_cost <- jl$Get("id", filterFun = function(x) x$type == "decision" && !is.null(x$cost))
+  if (is.null(style_decision_with_cost)) style_decision_with_cost <- "id_null"
   style_chance <- jl$Get("id", filterFun = function(x) x$type == "chance" && is.null(x$cost))
   if (is.null(style_chance)) style_chance <- "id_null"
   style_chance_with_cost <- jl$Get("id", filterFun = function(x) x$type == "chance" && !is.null(x$cost))
@@ -495,7 +576,9 @@ plot.dtree <- function(x, symbol = "$", dec = 2, final = FALSE, shiny = FALSE, .
     classDef chance fill:#FF8C00,stroke:#333,stroke-width:1px;
     classDef chance_with_cost fill:#FF8C00,stroke:#333,stroke-width:3px,stroke-dasharray:4,5;
     classDef decision fill:#9ACD32,stroke:#333,stroke-width:1px;
+    classDef decision_with_cost fill:#9ACD32,stroke:#333,stroke-width:3px,stroke-dasharray:4,5;
     class ", paste(style_decision, collapse = ","), " decision;
+    class ", paste(style_decision_with_cost, collapse = ","), " decision_with_cost;
     class ", paste(style_chance, collapse = ","), " chance;
     class ", paste(style_chance_with_cost, collapse = ","), " chance_with_cost;")
 
@@ -506,32 +589,39 @@ plot.dtree <- function(x, symbol = "$", dec = 2, final = FALSE, shiny = FALSE, .
                    id = data.tree::Get(trv, ToLabel),
                    tooltip = data.tree::Get(trv, ToolTip))
 
-  paste("graph LR", paste( paste0(df$from, df$edge, df$to), collapse = "\n"),
-    paste(unique(na.omit(df$tooltip)), collapse = "\n"),
-    style, sep = "\n") %>%
-    DiagrammeR::DiagrammeR(.)
-    # {if (shiny) . else HTML(DiagrammeR::renderDiagrammeR(.))}
-  # {if (shiny) . else DiagrammeR::DiagrammeR(.)}
+  trv <- data.tree::Traverse(jl, traversal = "level", filterFun = data.tree::isRoot)
+  ttip <- c(df[["tooltip"]], data.tree::Get(trv, ToolTip)) %>% na.omit %>% unique
+
+  ## use LR or TD
+  paste(paste0("graph ", orient), paste(paste0(df$from, df$edge, df$to), collapse = "\n"),
+    paste(ttip, collapse = "\n"), style, sep = "\n") %>%
+    ## address image size in pdf and html
+    DiagrammeR::mermaid(., width = "100%", height = "100%")
 }
 
 #' Evaluate sensitivity of the decision tree
 #'
-#' @details See \url{http://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
+#' @details See \url{https://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
 #'
 #' @param object Return value from \code{\link{dtree}}
 #' @param vars Variables to include in the sensitivity analysis
 #' @param decs Decisions to include in the sensitivity analysis
 #' @param shiny Did the function call originate inside a shiny app
+#' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This opion can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org/} for options.
 #' @param ... Additional arguments
 #'
+#' @seealso \code{\link{dtree}} to generate the result
+#' @seealso \code{\link{plot.dtree}} to summarize results
+#' @seealso \code{\link{summary.dtree}} to summarize results
+#'
 #' @export
-sensitivity.dtree <- function(object, vars = NULL, decs = NULL, shiny = FALSE, ...) {
+sensitivity.dtree <- function(object, vars = NULL, decs = NULL, 
+                              shiny = FALSE, custom = FALSE, ...) {
 
   yl <- object$yl
 
   if (is_empty(vars)) return("** No variables were specified **")
   if (is_empty(decs)) return("** No decisions were specified **")
-  # vars <- "wall cost 10000 40000 10000;\nP(MS) 0 1 0.2;"
   vars <- strsplit(vars, ";") %>% unlist %>% strsplit(" ")
 
   calc_payoff <- function(x, nm) {
@@ -570,6 +660,9 @@ sensitivity.dtree <- function(object, vars = NULL, decs = NULL, shiny = FALSE, .
         ggtitle(paste0("Sensitivity of decisions to changes in ",i)) + xlab(i)
   }
 
-  sshhr( do.call(gridExtra::arrangeGrob, c(plot_list, list(ncol = 1))) ) %>%
-    { if (shiny) . else print(.) }
+  if (custom)
+    if (length(plot_list) == 1) return(plot_list[[1]]) else return(plot_list)
+
+  sshhr(gridExtra::grid.arrange(grobs = plot_list, ncol = 1)) %>%
+    {if (shiny) . else print(.)}
 }

@@ -4,8 +4,8 @@
 \alias{confusion}
 \title{Confusion matrix}
 \usage{
-confusion(dataset, pred, rvar, lev = "", margin = 1, cost = 1,
-  train = "", method = "xtile", data_filter = "", ...)
+confusion(dataset, pred, rvar, lev = "", cost = 1, margin = 2,
+  train = "", data_filter = "", ...)
 }
 \arguments{
 \item{dataset}{Dataset name (string). This can be a dataframe in the global environment or an element in an r_data list from Radiant}
@@ -16,13 +16,11 @@ confusion(dataset, pred, rvar, lev = "", margin = 1, cost = 1,
 
 \item{lev}{The level in the response variable defined as _success_}
 
-\item{margin}{Margin on each customer purchase}
-
 \item{cost}{Cost for each connection (e.g., email or mailing)}
 
-\item{train}{Use data from training ("Training"), validation ("Validation"), both ("Both"), or all data ("All") to evaluate model evalbin}
+\item{margin}{Margin on each customer purchase}
 
-\item{method}{Use either ntile or xtile to split the data (default is xtile)}
+\item{train}{Use data from training ("Training"), validation ("Validation"), both ("Both"), or all data ("All") to evaluate model evalbin}
 
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
 
@@ -35,15 +33,10 @@ A list of results
 Confusion matrix
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
-}
-\examples{
-result <- evalbin("titanic", c("age","fare"), "survived")
-
+See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
 }
 \seealso{
-\code{\link{summary.evalbin}} to summarize results
+\code{\link{summary.confusion}} to summarize results
 
-\code{\link{plot.evalbin}} to plot results
+\code{\link{plot.confusion}} to plot results
 }
-

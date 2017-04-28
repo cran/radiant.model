@@ -15,11 +15,10 @@
 Summary method for the evalreg function
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/evalreg.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/evalreg.html} for an example in Radiant
 }
 \seealso{
 \code{\link{evalreg}} to summarize results
 
 \code{\link{plot.evalreg}} to plot results
 }
-

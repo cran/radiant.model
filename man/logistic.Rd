@@ -2,7 +2,7 @@
 % Please edit documentation in R/logistic.R
 \name{logistic}
 \alias{logistic}
-\title{Generalized linear models (GLM)}
+\title{Logistic regression}
 \usage{
 logistic(dataset, rvar, evar, lev = "", int = "", wts = "None",
   check = "", data_filter = "")
@@ -10,7 +10,7 @@ logistic(dataset, rvar, evar, lev = "", int = "", wts = "None",
 \arguments{
 \item{dataset}{Dataset name (string). This can be a dataframe in the global environment or an element in an r_data list from Radiant}
 
-\item{rvar}{The response variable in the logit (probit) model}
+\item{rvar}{The response variable in the model}
 
 \item{evar}{Explanatory variables in the model}
 
@@ -20,7 +20,7 @@ logistic(dataset, rvar, evar, lev = "", int = "", wts = "None",
 
 \item{wts}{Weights to use in estimation}
 
-\item{check}{Optional estimation parameters. "standardize" to output standardized coefficient estimates. "stepwise" to apply step-wise selection of variables}
+\item{check}{Use "standardize" to see standardized coefficient estimates. Use "stepwise-backward" (or "stepwise-forward", or "stepwise-both") to apply step-wise selection of variables in estimation}
 
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
 }
@@ -28,10 +28,10 @@ logistic(dataset, rvar, evar, lev = "", int = "", wts = "None",
 A list with all variables defined in logistic as an object of class logistic
 }
 \description{
-Generalized linear models (GLM)
+Logistic regression
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
 }
 \examples{
 result <- logistic("titanic", "survived", c("pclass","sex"), lev = "Yes")
@@ -47,4 +47,3 @@ result <- logistic("titanic", "survived", c("pclass","sex"))
 
 \code{\link{plot.model.predict}} to plot prediction output
 }
-

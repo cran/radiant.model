@@ -4,10 +4,12 @@
 \alias{summary.ann}
 \title{Summary method for the ann function}
 \usage{
-\method{summary}{ann}(object, ...)
+\method{summary}{ann}(object, prn = TRUE, ...)
 }
 \arguments{
 \item{object}{Return value from \code{\link{ann}}}
+
+\item{prn}{Print list of weights}
 
 \item{...}{further arguments passed to or from other methods}
 }
@@ -15,7 +17,7 @@
 Summary method for the ann function
 }
 \details{
-See \url{http://radiant-rstats.github.io/docs/model/ann.html} for an example in Radiant
+See \url{https://radiant-rstats.github.io/docs/model/ann.html} for an example in Radiant
 }
 \examples{
 result <- ann("titanic", "survived", "pclass", lev = "Yes")
@@ -23,10 +25,9 @@ summary(result)
 
 }
 \seealso{
-\code{\link{ann}} to generate esults
+\code{\link{ann}} to generate results
 
 \code{\link{plot.ann}} to plot results
 
 \code{\link{predict.ann}} for prediction
 }
-

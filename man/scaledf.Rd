@@ -18,7 +18,7 @@ scaledf(dat, center = TRUE, scale = TRUE, sf = 2, wts = NULL,
 
 \item{wts}{Weights to use (default is NULL for no weights)}
 
-\item{calc}{Calculate mean and sd or use available attributes}
+\item{calc}{Calculate mean and sd or use attributes attached to dat}
 }
 \value{
 Scaled data frame
@@ -26,4 +26,6 @@ Scaled data frame
 \description{
 Center or standardize variables in a data frame
 }
-
+\seealso{
+\code{\link{copy_attr}} to copy attributes from a traning to a validation dataset
+}
