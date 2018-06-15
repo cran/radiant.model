@@ -1,62 +1,71 @@
-#' Model evalreg
+#' Evaluate the performance of different regression models
 #'
-#' @details See \url{https://radiant-rstats.github.io/docs/model/evalreg.html} for an example in Radiant
+#' @details Evaluate different regression models based on predictions. See \url{https://radiant-rstats.github.io/docs/model/evalreg.html} for an example in Radiant
 #'
-#' @param dataset Dataset name (string). This can be a dataframe in the global environment or an element in an r_data list from Radiant
+#' @param dataset Dataset
 #' @param pred Predictions or predictors
 #' @param rvar Response variable
 #' @param train Use data from training ("Training"), validation ("Validation"), both ("Both"), or all data ("All") to evaluate model evalreg
-#' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "training == 1")
 #'
 #' @return A list of results
 #'
 #' @seealso \code{\link{summary.evalreg}} to summarize results
 #' @seealso \code{\link{plot.evalreg}} to plot results
 #'
+#' @examples
+#' data.frame(price = diamonds$price, pred1 = rnorm(3000), pred2 = diamonds$price) %>%
+#'   evalreg(pred = c("pred1", "pred2"), "price") %>%
+#'   str()
+#'
 #' @export
-evalreg <- function(dataset, pred, rvar,
-                    train = "",
-                    data_filter = "") {
+evalreg <- function(
+  dataset, pred, rvar,
+  train = "All", data_filter = ""
+) {
 
-  if (!train %in% c("","All") && is_empty(data_filter))
-    return("** Filter required. To set a filter go to Data > View and click\n   the filter checkbox **" %>% add_class("confusion"))
-
-	dat_list <- list()
-	vars <- c(pred, rvar)
-	if (train == "Both") {
-		dat_list[["Training"]] <- getdata(dataset, vars, filt = data_filter)
-		dat_list[["Validation"]] <- getdata(dataset, vars, filt = paste0("!(",data_filter,")"))
-	} else if (train == "Training") {
-		dat_list[["Training"]] <- getdata(dataset, vars, filt = data_filter)
-	} else if (train == "Validation") {
-		dat_list[["Validation"]] <- getdata(dataset, vars, filt = paste0("!(",data_filter,")"))
-	} else {
-		dat_list[["All"]] <- getdata(dataset, vars, filt = "")
-	}
-
-	if (!is_string(dataset)) dataset <- deparse(substitute(dataset)) %>% set_attr("df", TRUE)
-
-	pdat <- list()
-	for (i in names(dat_list)) {
-		dat <- dat_list[[i]]
-	  rv <- dat[[rvar]]
-
-	  ## see http://stackoverflow.com/a/35617817/1974918 about extracting a row
-	  ## from a tbl_df
-	  pdat[[i]] <-
-		  data.frame(
-		    Type = rep(i, length(pred)),
-		    Predictor = pred,
-		    Rsq = cor(rv, dat[pred])^2 %>% .[1,],
-		    RSME = summarise_at(dat, .cols = pred, .funs = funs(mean((rv - .)^2, na.rm = TRUE) %>% sqrt)) %>% unlist,
-		    MAE = summarise_at(dat, .cols = pred, .funs = funs(mean(abs(rv - .), na.rm = TRUE))) %>% unlist
-	    )
+  if (!train %in% c("", "All") && is_empty(data_filter)) {
+    return("** Filter required. To set a filter go to Data > View and click\n   the filter checkbox **" %>% add_class("evalreg"))
   }
 
-	dat <- bind_rows(pdat) %>% as.data.frame
-	rm(pdat, dat_list)
+  # Add an option to exponentiate predictions in case of log regression
 
-	as.list(environment()) %>% add_class("evalreg")
+  df_name <- if (is_string(dataset)) dataset else deparse(substitute(dataset))
+  dat_list <- list()
+  vars <- c(pred, rvar)
+  if (train == "Both") {
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
+    dat_list[["Validation"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+  } else if (train == "Training") {
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
+  } else if (train == "Validation") {
+    dat_list[["Validation"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+  } else {
+    dat_list[["All"]] <- get_data(dataset, vars, filt = "")
+  }
+
+  pdat <- list()
+  for (i in names(dat_list)) {
+    dat <- dat_list[[i]]
+    rv <- dat[[rvar]]
+
+    ## see http://stackoverflow.com/a/35617817/1974918 about extracting a row
+    ## from a tbl_df
+    pdat[[i]] <- data.frame(
+      Type = rep(i, length(pred)),
+      Predictor = pred,
+      n = nrow(dat[pred]),
+      Rsq = cor(rv, select_at(dat, pred))^2 %>% .[1, ],
+      RMSE = summarise_at(dat, .vars = pred, .funs = funs(sqrt(mean((rv - .) ^ 2, na.rm = TRUE)))) %>% unlist(),
+      MAE = summarise_at(dat, .vars = pred, .funs = funs(mean(abs(rv - .), na.rm = TRUE))) %>% unlist(),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  dat <- bind_rows(pdat) %>% as.data.frame(stringsAsFactors = FALSE)
+  rm(pdat, dat_list, i)
+
+  as.list(environment()) %>% add_class("evalreg")
 }
 
 #' Summary method for the evalreg function
@@ -64,23 +73,30 @@ evalreg <- function(dataset, pred, rvar,
 #' @details See \url{https://radiant-rstats.github.io/docs/model/evalreg.html} for an example in Radiant
 #'
 #' @param object Return value from \code{\link{evalreg}}
+#' @param dec Number of decimals to show
 #' @param ... further arguments passed to or from other methods
 #'
 #' @seealso \code{\link{evalreg}} to summarize results
 #' @seealso \code{\link{plot.evalreg}} to plot results
 #'
+#' @examples
+#' data.frame(price = diamonds$price, pred1 = rnorm(3000), pred2 = diamonds$price) %>%
+#'   evalreg(pred = c("pred1", "pred2"), "price") %>%
+#'   summary()
+#'
 #' @export
-summary.evalreg <- function(object, ...) {
-
+summary.evalreg <- function(object, dec = 3, ...) {
   if (is.character(object)) return(object)
-	cat("Evaluate predictions for regression models\n")
-	cat("Data        :", object$dataset, "\n")
-	if (object$data_filter %>% gsub("\\s","",.) != "")
-		cat("Filter      :", gsub("\\n","", object$data_filter), "\n")
-	cat("Results for :", object$train, "\n")
-	cat("Predictors  :", paste0(object$pred, collapse=", "), "\n")
-	cat("Response    :", object$rvar, "\n\n")
-	print(formatdf(object$dat), row.names = FALSE)
+  cat("Evaluate predictions for regression models\n")
+  cat("Data        :", object$df_name, "\n")
+  if (object$data_filter %>% gsub("\\s", "", .) != "") {
+    cat("Filter      :", gsub("\\n", "", object$data_filter), "\n")
+  }
+  cat("Results for :", object$train, "\n")
+  cat("Predictors  :", paste0(object$pred, collapse = ", "), "\n")
+  cat("Response    :", object$rvar, "\n\n")
+  format_df(object$dat, dec = dec, mark = ",") %>%
+    print(row.names = FALSE)
 }
 
 #' Plot method for the evalreg function
@@ -88,21 +104,49 @@ summary.evalreg <- function(object, ...) {
 #' @details See \url{https://radiant-rstats.github.io/docs/model/evalreg.html} for an example in Radiant
 #'
 #' @param x Return value from \code{\link{evalreg}}
-#' @param vars Measures to plot, i.e., one or more of "Rsq", "RSME", "MAE"
+#' @param vars Measures to plot, i.e., one or more of "Rsq", "RMSE", "MAE"
 #' @param ... further arguments passed to or from other methods
 #'
 #' @seealso \code{\link{evalreg}} to generate results
 #' @seealso \code{\link{summary.evalreg}} to summarize results
 #'
+#' @examples
+#' data.frame(price = diamonds$price, pred1 = rnorm(3000), pred2 = diamonds$price) %>%
+#'   evalreg(pred = c("pred1", "pred2"), "price") %>%
+#'   plot()
+#'
 #' @export
-plot.evalreg <- function(x, vars = c("Rsq","RSME","MAE"), ...) {
+plot.evalreg <- function(x, vars = c("Rsq", "RMSE", "MAE"), ...) {
 
-	object <- x; rm(x)
-  if (is.character(object) || is.null(object)) return(invisible())
+  if (is.character(x) || is.null(x)) return(invisible())
 
-	gather_(object$dat, "Metric", "Value", vars, factor_key = TRUE) %>%
-		mutate(Predictor = factor(Predictor, levels = unique(Predictor))) %>%
-		visualize(xvar = "Predictor", yvar = "Value", type = "bar",
-		          facet_row = "Metric", fill = "Type", axes = "scale_y", custom = TRUE) +
-		labs(y = "", x = "Predictor")
+  dat <- gather(x$dat, "Metric", "Value", !! vars, factor_key = TRUE) %>%
+    mutate(Predictor = factor(Predictor, levels = unique(Predictor)))
+
+  ## what data was used in evaluation? All, Training, Validation, or Both
+  type <- unique(dat$Type)
+
+  p <- visualize(
+    dat,
+    xvar = "Predictor",
+    yvar = "Value",
+    type = "bar",
+    facet_row = "Metric",
+    fill = "Type",
+    axes = "scale_y",
+    custom = TRUE
+  ) +
+    labs(
+      # title = paste0("Regression performance plots (", paste0(type, collapse = ", "), ")"),
+      title = glue('Regression performance plots ({glue_collapse(type, ", ")})'),
+      y = "",
+      x = "Predictor",
+      fill = ""
+    )
+
+  if (length(type) < 2) {
+    p + theme(legend.position = "none")
+  } else {
+    p
+  }
 }

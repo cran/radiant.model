@@ -7,7 +7,7 @@
 crs(dataset, id, prod, pred, rate, data_filter = "")
 }
 \arguments{
-\item{dataset}{Dataset name (string). This can be a dataframe in the global environment or an element in an r_data list from Radiant}
+\item{dataset}{Dataset}
 
 \item{id}{String with name of the variable containing user ids}
 
@@ -27,4 +27,14 @@ Collaborative Filtering
 }
 \details{
 See \url{https://radiant-rstats.github.io/docs/model/crs.html} for an example in Radiant
+}
+\examples{
+crs(ratings, id = "Users", prod = "Movies", pred = c("M6", "M7", "M8", "M9", "M10"), 
+    rate = "Ratings", data_filter = "training == 1") \%>\% str()
+
+}
+\seealso{
+\code{\link{summary.crs}} to summarize results
+
+\code{\link{plot.crs}} to plot results if the actual ratings are available
 }

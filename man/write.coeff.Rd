@@ -4,7 +4,7 @@
 \alias{write.coeff}
 \title{Write coefficient table for linear and logistic regression}
 \usage{
-write.coeff(object, file = "", sort = FALSE)
+write.coeff(object, file = "", sort = FALSE, intercept = TRUE)
 }
 \arguments{
 \item{object}{A fitted model object of class regress or logistic}
@@ -12,16 +12,18 @@ write.coeff(object, file = "", sort = FALSE)
 \item{file}{A character string naming a file. "" indicates output to the console}
 
 \item{sort}{Sort table by variable importance}
+
+\item{intercept}{Include the intercept in the output (TRUE or FALSE). TRUE is the default}
 }
 \description{
 Write coefficient table for linear and logistic regression
 }
 \details{
-Write coefficients and importance scores to csv
+Write coefficients and importance scores to csv or or return as a data.frame
 }
 \examples{
-regress(diamonds, rvar = "price", evar = "carat:x", check = "standardize") \%>\%
+regress(diamonds, rvar = "price", evar = c("carat", "clarity", "x"), check = "standardize") \%>\%
   write.coeff(sort = TRUE) \%>\%
-  formatdf(dec = 3)
+  format_df(dec = 3)
 
 }

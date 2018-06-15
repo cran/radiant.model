@@ -4,19 +4,21 @@
 \alias{predict.regress}
 \title{Predict method for the regress function}
 \usage{
-\method{predict}{regress}(object, pred_data = "", pred_cmd = "",
-  conf_lev = 0.95, se = TRUE, dec = 3, ...)
+\method{predict}{regress}(object, pred_data = NULL, pred_cmd = "",
+  conf_lev = 0.95, se = TRUE, interval = "confidence", dec = 3, ...)
 }
 \arguments{
 \item{object}{Return value from \code{\link{regress}}}
 
-\item{pred_data}{Name of the dataset to use for prediction}
+\item{pred_data}{Provide the dataframe to generate predictions (e.g., diamonds). The dataset must contain all columns used in the estimation}
 
 \item{pred_cmd}{Command used to generate data for prediction}
 
 \item{conf_lev}{Confidence level used to estimate confidence intervals (.95 is the default)}
 
 \item{se}{Logical that indicates if prediction standard errors should be calculated (default = FALSE)}
+
+\item{interval}{Type of interval calculation ("confidence" or "prediction"). Set to "none" if se is FALSE}
 
 \item{dec}{Number of decimals to show}
 
@@ -29,13 +31,11 @@ Predict method for the regress function
 See \url{https://radiant-rstats.github.io/docs/model/regress.html} for an example in Radiant
 }
 \examples{
-result <- regress("diamonds", "price", c("carat","clarity"))
+result <- regress(diamonds, "price", c("carat", "clarity"))
 predict(result, pred_cmd = "carat = 1:10")
 predict(result, pred_cmd = "clarity = levels(clarity)")
-result <- regress("diamonds", "price", c("carat","clarity"), int = c("carat:clarity"))
-dpred <<- getdata("diamonds") \%>\% slice(1:10)
-predict(result, pred_data = "dpred")
-rm(dpred, envir = .GlobalEnv)
+result <- regress(diamonds, "price", c("carat", "clarity"), int = "carat:clarity")
+predict(result, pred_data = diamonds) \%>\% head()
 
 }
 \seealso{

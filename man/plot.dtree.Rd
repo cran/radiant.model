@@ -5,7 +5,7 @@
 \title{Plot method for the dtree function}
 \usage{
 \method{plot}{dtree}(x, symbol = "$", dec = 2, final = FALSE,
-  orient = "LR", ...)
+  orient = "LR", width = "900px", ...)
 }
 \arguments{
 \item{x}{Return value from \code{\link{dtree}}}
@@ -18,6 +18,8 @@
 
 \item{orient}{Plot orientation: LR for vertical and TD for horizontal}
 
+\item{width}{Plot width in pixels (default is "900px")}
+
 \item{...}{further arguments passed to or from other methods}
 }
 \description{
@@ -25,6 +27,11 @@ Plot method for the dtree function
 }
 \details{
 See \url{https://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
+}
+\examples{
+dtree(movie_contract, opt = "max") \%>\% plot()
+dtree(movie_contract, opt = "max") \%>\% plot(final = TRUE, orient = "TD")
+
 }
 \seealso{
 \code{\link{dtree}} to generate the result

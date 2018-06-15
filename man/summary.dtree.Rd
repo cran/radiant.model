@@ -4,10 +4,17 @@
 \alias{summary.dtree}
 \title{Summary method for the dtree function}
 \usage{
-\method{summary}{dtree}(object, ...)
+\method{summary}{dtree}(object, input = TRUE, output = FALSE, dec = 2,
+  ...)
 }
 \arguments{
 \item{object}{Return value from \code{\link{simulater}}}
+
+\item{input}{Print decision tree input}
+
+\item{output}{Print decision tree output}
+
+\item{dec}{Number of decimals to show}
 
 \item{...}{further arguments passed to or from other methods}
 }
@@ -16,6 +23,11 @@ Summary method for the dtree function
 }
 \details{
 See \url{https://radiant-rstats.github.io/docs/model/dtree.html} for an example in Radiant
+}
+\examples{
+dtree(movie_contract, opt = "max") \%>\% summary(input = TRUE)
+dtree(movie_contract, opt = "max") \%>\% summary(input = FALSE, output = TRUE)
+
 }
 \seealso{
 \code{\link{dtree}} to generate the results

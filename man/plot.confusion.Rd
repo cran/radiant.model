@@ -5,7 +5,7 @@
 \title{Plot method for the confusion matrix}
 \usage{
 \method{plot}{confusion}(x, vars = c("kappa", "index", "ROME", "AUC"),
-  scale_y = TRUE, ...)
+  scale_y = TRUE, size = 13, ...)
 }
 \arguments{
 \item{x}{Return value from \code{\link{confusion}}}
@@ -14,6 +14,8 @@
 
 \item{scale_y}{Free scale in faceted plot of the confusion matrix (TRUE or FALSE)}
 
+\item{size}{Font size used}
+
 \item{...}{further arguments passed to or from other methods}
 }
 \description{
@@ -21,6 +23,12 @@ Plot method for the confusion matrix
 }
 \details{
 See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
+}
+\examples{
+data.frame(buy = dvd$buy, pred1 = runif(20000), pred2 = ifelse(dvd$buy == "yes", 1, 0)) \%>\%
+  confusion(c("pred1", "pred2"), "buy") \%>\%
+  plot()
+
 }
 \seealso{
 \code{\link{confusion}} to generate results

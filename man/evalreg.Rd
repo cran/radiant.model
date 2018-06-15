@@ -2,12 +2,12 @@
 % Please edit documentation in R/evalreg.R
 \name{evalreg}
 \alias{evalreg}
-\title{Model evalreg}
+\title{Evaluate the performance of different regression models}
 \usage{
-evalreg(dataset, pred, rvar, train = "", data_filter = "")
+evalreg(dataset, pred, rvar, train = "All", data_filter = "")
 }
 \arguments{
-\item{dataset}{Dataset name (string). This can be a dataframe in the global environment or an element in an r_data list from Radiant}
+\item{dataset}{Dataset}
 
 \item{pred}{Predictions or predictors}
 
@@ -15,16 +15,22 @@ evalreg(dataset, pred, rvar, train = "", data_filter = "")
 
 \item{train}{Use data from training ("Training"), validation ("Validation"), both ("Both"), or all data ("All") to evaluate model evalreg}
 
-\item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
+\item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "training == 1")}
 }
 \value{
 A list of results
 }
 \description{
-Model evalreg
+Evaluate the performance of different regression models
 }
 \details{
-See \url{https://radiant-rstats.github.io/docs/model/evalreg.html} for an example in Radiant
+Evaluate different regression models based on predictions. See \url{https://radiant-rstats.github.io/docs/model/evalreg.html} for an example in Radiant
+}
+\examples{
+data.frame(price = diamonds$price, pred1 = rnorm(3000), pred2 = diamonds$price) \%>\%
+  evalreg(pred = c("pred1", "pred2"), "price") \%>\%
+  str()
+
 }
 \seealso{
 \code{\link{summary.evalreg}} to summarize results

@@ -2,19 +2,19 @@
 % Please edit documentation in R/evalbin.R
 \name{evalbin}
 \alias{evalbin}
-\title{Model evalbin}
+\title{Evaluate the performance of different (binary) classification models}
 \usage{
 evalbin(dataset, pred, rvar, lev = "", qnt = 10, cost = 1, margin = 2,
-  train = "", method = "xtile", data_filter = "")
+  train = "All", data_filter = "")
 }
 \arguments{
-\item{dataset}{Dataset name (string). This can be a dataframe in the global environment or an element in an r_data list from Radiant}
+\item{dataset}{Dataset}
 
 \item{pred}{Predictions or predictors}
 
 \item{rvar}{Response variable}
 
-\item{lev}{The level in the response variable defined as _success_}
+\item{lev}{The level in the response variable defined as success}
 
 \item{qnt}{Number of bins to create}
 
@@ -24,21 +24,21 @@ evalbin(dataset, pred, rvar, lev = "", qnt = 10, cost = 1, margin = 2,
 
 \item{train}{Use data from training ("Training"), validation ("Validation"), both ("Both"), or all data ("All") to evaluate model evalbin}
 
-\item{method}{Use either ntile or xtile to split the data (default is xtile)}
-
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
 }
 \value{
 A list of results
 }
 \description{
-Model evalbin
+Evaluate the performance of different (binary) classification models
 }
 \details{
-See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
+Evaluate different (binary) classification models based on predictions. See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
 }
 \examples{
-result <- evalbin("titanic", c("age","fare"), "survived")
+data.frame(buy = dvd$buy, pred1 = runif(20000), pred2 = ifelse(dvd$buy == "yes", 1, 0)) \%>\%
+  evalbin(c("pred1", "pred2"), "buy") \%>\%
+  str()
 
 }
 \seealso{

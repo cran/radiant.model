@@ -4,10 +4,10 @@
 \alias{sim_summary}
 \title{Print simulation summary}
 \usage{
-sim_summary(dat, dc = getclass(dat), fun = "", dec = 4)
+sim_summary(dataset, dc = get_class(dataset), fun = "", dec = 4)
 }
 \arguments{
-\item{dat}{Simulated data}
+\item{dataset}{Simulated data}
 
 \item{dc}{Variable classes}
 
@@ -17,4 +17,19 @@ sim_summary(dat, dc = getclass(dat), fun = "", dec = 4)
 }
 \description{
 Print simulation summary
+}
+\examples{
+simulater(
+  const = "cost 3", 
+  norm = "demand 2000 1000", 
+  discrete = "price 5 8 .3 .7", 
+  form = c("profit = demand * (price - cost)", "profit5K = profit > 5000"),
+  seed = 1234
+) \%>\% sim_summary()
+
+}
+\seealso{
+\code{\link{simulater}} to run a simulation
+
+\code{\link{repeater}} to run a repeated simulation
 }

@@ -4,17 +4,24 @@
 \alias{plot.repeater}
 \title{Plot repeated simulation}
 \usage{
-\method{plot}{repeater}(x, shiny = FALSE, custom = FALSE, ...)
+\method{plot}{repeater}(x, bins = 20, shiny = FALSE, custom = FALSE, ...)
 }
 \arguments{
 \item{x}{Return value from \code{\link{repeater}}}
 
+\item{bins}{Number of bins used for histograms (1 - 50)}
+
 \item{shiny}{Did the function call originate inside a shiny app}
 
-\item{custom}{Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This opion can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org/} for options.}
+\item{custom}{Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org} for options.}
 
 \item{...}{further arguments passed to or from other methods}
 }
 \description{
 Plot repeated simulation
+}
+\seealso{
+\code{\link{repeater}} to run a repeated simulation
+
+\code{\link{summary.repeater}} to summarize results from repeated simulation
 }

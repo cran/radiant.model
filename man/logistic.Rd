@@ -5,10 +5,10 @@
 \title{Logistic regression}
 \usage{
 logistic(dataset, rvar, evar, lev = "", int = "", wts = "None",
-  check = "", data_filter = "")
+  check = "", ci_type, data_filter = "")
 }
 \arguments{
-\item{dataset}{Dataset name (string). This can be a dataframe in the global environment or an element in an r_data list from Radiant}
+\item{dataset}{Dataset}
 
 \item{rvar}{The response variable in the model}
 
@@ -20,7 +20,9 @@ logistic(dataset, rvar, evar, lev = "", int = "", wts = "None",
 
 \item{wts}{Weights to use in estimation}
 
-\item{check}{Use "standardize" to see standardized coefficient estimates. Use "stepwise-backward" (or "stepwise-forward", or "stepwise-both") to apply step-wise selection of variables in estimation}
+\item{check}{Use "standardize" to see standardized coefficient estimates. Use "stepwise-backward" (or "stepwise-forward", or "stepwise-both") to apply step-wise selection of variables in estimation. Add "robust" for robust estimation of standard errors (HC1)}
+
+\item{ci_type}{To use the profile-likelihood (rather than Wald) for confidence intervals use "profile". For datasets with more than 5,000 rows the Wald method will be used, unless "profile" is explicitly set}
 
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
 }
@@ -34,8 +36,8 @@ Logistic regression
 See \url{https://radiant-rstats.github.io/docs/model/logistic.html} for an example in Radiant
 }
 \examples{
-result <- logistic("titanic", "survived", c("pclass","sex"), lev = "Yes")
-result <- logistic("titanic", "survived", c("pclass","sex"))
+logistic(titanic, "survived", c("pclass", "sex"), lev = "Yes") \%>\% summary()
+logistic(titanic, "survived", c("pclass", "sex")) \%>\% str()
 
 }
 \seealso{

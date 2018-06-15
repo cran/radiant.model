@@ -4,12 +4,17 @@
 \alias{summary.crtree}
 \title{Summary method for the crtree function}
 \usage{
-\method{summary}{crtree}(object, prn = TRUE, ...)
+\method{summary}{crtree}(object, prn = TRUE, cptab = FALSE,
+  modsum = FALSE, ...)
 }
 \arguments{
 \item{object}{Return value from \code{\link{crtree}}}
 
 \item{prn}{Print tree in text form}
+
+\item{cptab}{Print the cp table}
+
+\item{modsum}{Print the model summary}
 
 \item{...}{further arguments passed to or from other methods}
 }
@@ -20,9 +25,9 @@ Summary method for the crtree function
 See \url{https://radiant-rstats.github.io/docs/model/crtree.html} for an example in Radiant
 }
 \examples{
-result <- crtree("titanic", "survived", c("pclass","sex"), lev = "Yes")
+result <- crtree(titanic, "survived", c("pclass", "sex"), lev = "Yes")
 summary(result)
-result <- crtree("diamonds", "price", c("carat","color"), type = "regression")
+result <- crtree(diamonds, "price", c("carat", "color"), type = "regression")
 summary(result)
 
 }

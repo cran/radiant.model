@@ -4,14 +4,16 @@
 \alias{plot.simulater}
 \title{Plot method for the simulater function}
 \usage{
-\method{plot}{simulater}(x, shiny = FALSE, custom = FALSE, ...)
+\method{plot}{simulater}(x, bins = 20, shiny = FALSE, custom = FALSE, ...)
 }
 \arguments{
 \item{x}{Return value from \code{\link{simulater}}}
 
+\item{bins}{Number of bins used for histograms (1 - 50)}
+
 \item{shiny}{Did the function call originate inside a shiny app}
 
-\item{custom}{Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This opion can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org/} for options.}
+\item{custom}{Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org} for options.}
 
 \item{...}{further arguments passed to or from other methods}
 }
@@ -22,10 +24,14 @@ Plot method for the simulater function
 See \url{https://radiant-rstats.github.io/docs/model/simulater} for an example in Radiant
 }
 \examples{
-result <- simulater(const = "cost 3", norm = "demand 2000 1000",
-                    discrete = "price 5 8 .3 .7",
-                    form = "profit = demand * (price - cost)")
-plot(result)
+simdat <- simulater(
+  const = "cost 3", 
+  norm = "demand 2000 1000", 
+  discrete = "price 5 8 .3 .7", 
+  form = "profit = demand * (price - cost)",
+  seed = 1234
+)
+plot(simdat, bins = 25)
 
 }
 \seealso{
