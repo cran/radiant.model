@@ -9,7 +9,7 @@
 #' @param qnt Number of bins to create
 #' @param cost Cost for each connection (e.g., email or mailing)
 #' @param margin Margin on each customer purchase
-#' @param train Use data from training ("Training"), validation ("Validation"), both ("Both"), or all data ("All") to evaluate model evalbin
+#' @param train Use data from training ("Training"), test ("Test"), both ("Both"), or all data ("All") to evaluate model evalbin
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
 #'
 #' @return A list of results
@@ -44,11 +44,11 @@ evalbin <- function(
   vars <- c(pred, rvar)
   if (train == "Both") {
     dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
-    dat_list[["Validation"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
   } else if (train == "Training") {
     dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
-  } else if (train == "Validation") {
-    dat_list[["Validation"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+  } else if (train == "Test" | train == "Validation") {
+    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
   } else {
     dat_list[["All"]] <- get_data(dataset, vars, filt = "")
   }
@@ -57,7 +57,7 @@ evalbin <- function(
   auc_list <- list()
   prof_list <- c()
   pdat <- list()
-  pext <- c(All = "", Training = " (train)", Validation = " (val)")
+  pext <- c(All = "", Training = " (train)", Test = " (test)")
 
   for (i in names(dat_list)) {
     lg_list <- list()
@@ -112,7 +112,7 @@ evalbin <- function(
           gains = nr_resp / tot_resp
         ) %>%
         {if (first(.$resp_rate) < last(.$resp_rate)) {
-           mutate_all(., funs(rev))
+           mutate_all(., rev)
          } else {
            .
          }
@@ -170,7 +170,7 @@ summary.evalbin <- function(object, prn = TRUE, dec = 3, ...) {
 
   cat("Evaluate predictions for binary response models\n")
   cat("Data        :", object$df_name, "\n")
-  if (object$data_filter %>% gsub("\\s", "", .) != "") {
+  if (!is_empty(object$data_filter)) {
     cat("Filter      :", gsub("\\n", "", object$data_filter), "\n")
   }
   cat("Results for :", object$train, "\n")
@@ -308,7 +308,7 @@ plot.evalbin <- function(
 #' @param lev The level in the response variable defined as success
 #' @param cost Cost for each connection (e.g., email or mailing)
 #' @param margin Margin on each customer purchase
-#' @param train Use data from training ("Training"), validation ("Validation"), both ("Both"), or all data ("All") to evaluate model evalbin
+#' @param train Use data from training ("Training"), test ("Test"), both ("Both"), or all data ("All") to evaluate model evalbin
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
 #' @param ... further arguments passed to or from other methods
 #'
@@ -348,11 +348,11 @@ confusion <- function(
   vars <- c(pred, rvar)
   if (train == "Both") {
     dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
-    dat_list[["Validation"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
   } else if (train == "Training") {
     dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
-  } else if (train == "Validation") {
-    dat_list[["Validation"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+  } else if (train == "Test" | train == "Validation") {
+    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
   } else {
     dat_list[["All"]] <- get_data(dataset, vars, filt = "")
   }
@@ -383,7 +383,7 @@ confusion <- function(
     dataset[, pred] <- select_at(dataset, .vars = pred) > break_even
 
     if (length(pred) > 1) {
-      dataset <- mutate_at(dataset, .vars = c(rvar, pred), .funs = funs(factor(., levels = c("FALSE", "TRUE"))))
+      dataset <- mutate_at(dataset, .vars = c(rvar, pred), .funs = ~ factor(., levels = c("FALSE", "TRUE")))
     } else {
       dataset[, pred] %<>% apply(2, function(x) factor(x, levels = c("FALSE", "TRUE")))
     }
@@ -492,7 +492,7 @@ summary.confusion <- function(object, dec = 3, ...) {
 
   cat("Confusion matrix\n")
   cat("Data       :", object$df_name, "\n")
-  if (object$data_filter %>% gsub("\\s", "", .) != "") {
+  if (!is_empty(object$data_filter)) {
     cat("Filter     :", gsub("\\n", "", object$data_filter), "\n")
   }
   cat("Results for:", object$train, "\n")
@@ -537,11 +537,11 @@ plot.confusion <- function(
 
   if (is.character(x) || is.null(x)) return(invisible())
   dataset <- x$dataset %>%
-    mutate_at(.vars = c("TN", "FN", "FP", "TP"), .funs = funs(if (is.numeric(.)) . / total else .)) %>%
+    mutate_at(.vars = c("TN", "FN", "FP", "TP"), .funs = list(~ if (is.numeric(.)) . / total else .)) %>%
     gather("Metric", "Value", !! vars, factor_key = TRUE) %>%
     mutate(Predictor = factor(Predictor, levels = unique(Predictor)))
 
-  ## what data was used in evaluation? All, Training, Validation, or Both
+  ## what data was used in evaluation? All, Training, Test, or Both
   type <- unique(dataset$Type)
 
   if (scale_y) {
@@ -592,12 +592,68 @@ plot.confusion <- function(
 auc <- function(pred, rvar, lev) {
   ## based on examples in colAUC at ...
   ## https://cran.r-project.org/web/packages/caTools/caTools.pdf
-  if (missing(lev) && is.factor(rvar)) lev <- levels(rvar)[1]
-  stopifnot(length(lev) == 1, lev %in% rvar)
+  lev <- check_lev(rvar, lev)
   x1 <- pred[rvar == lev]
   x2 <- pred[rvar != lev]
   ## need as.numeric to avoid integer-overflows
   denom <- as.numeric(length(x1)) * length(x2)
-  wt <- wilcox.test(x1, x2, exact = FALSE)$statistic / denom
-  ifelse(wt < .5, 1 - wt, wt)[["W"]]
+  wt <- unname(wilcox.test(x1, x2, exact = FALSE)$statistic / denom)
+  ifelse(wt < .5, 1 - wt, wt)
+}
+
+#' Calculate Profit based on cost:margin ratio
+#'
+#' @param pred Prediction or predictor
+#' @param rvar Response variable
+#' @param lev The level in the response variable defined as success
+#' @param cost Cost per treatment (e.g., mailing costs)
+#' @param margin Margin, or benefit, per 'success' (e.g., customer purchase). A cost:margin ratio of 1:2 implies
+#'   the cost of False Positive are equivalent to the benefits of a True Positive
+#'
+#' @return profit
+#'
+#' @examples
+#' profit(runif(20000), dvd$buy, "yes", cost = 1, margin = 2)
+#' profit(ifelse(dvd$buy == "yes", 1, 0), dvd$buy, "yes", cost = 1, margin = 20)
+#' profit(ifelse(dvd$buy == "yes", 1, 0), dvd$buy)
+#'
+#' @export
+profit <- function(pred, rvar, lev, cost = 1, margin = 2) {
+  lev <- check_lev(rvar, lev)
+  rvar <- rvar == lev
+  break_even = cost/margin
+  TP <- rvar & pred > break_even
+  FP <- !rvar & pred > break_even
+  margin * sum(TP) - cost * sum(TP, FP)
+}
+
+## Check that a relevant value for 'lev' is available
+# Examples
+# check_lev(1:10, 1)
+# check_lev(letters, "a")
+# check_lev(c(TRUE, FALSE), TRUE)
+# check_lev(c(TRUE, FALSE))
+# check_lev(factor(letters))
+# check_lev(letters)
+# check_lev(factor(letters), 1)
+check_lev <- function(rvar, lev) {
+  if (missing(lev)) {
+    if (is.factor(rvar)) {
+      lev <- levels(rvar)[1]
+    } else if (is.logical(rvar)) {
+      lev <- TRUE
+    } else {
+      stop("Unless rvar is of type factor or logical you must provide the level in rvar to evaluate")
+    }
+  } else {
+    if (length(lev) > 1) {
+      stop("lev must have length 1 but is of length", length(lev))
+    } else if (!lev %in% rvar) {
+      cat("rvar:", head(as.character(rvar)))
+      cat("\nlev:", head(lev), "\n")
+      stop("lev must be an element of rvar")
+    }
+    # stopifnot(length(lev) == 1, lev %in% rvar | is.logical(lev))
+  }
+  lev
 }

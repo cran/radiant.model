@@ -70,7 +70,7 @@ nn <- function(
     }
   }
 
-  if (any(summarise_all(dataset, .funs = funs(does_vary)) == FALSE)) {
+  if (any(summarise_all(dataset, .funs = does_vary) == FALSE)) {
     return("One or more selected variables show no variation. Please select other variables." %>% add_class("nn"))
   }
 
@@ -98,7 +98,7 @@ nn <- function(
   ## standardize data to limit stability issues ...
   # http://stats.stackexchange.com/questions/23235/how-do-i-improve-my-neural-network-stability
   if ("standardize" %in% check) {
-    dataset <- scaledf(dataset, wts = wts)
+    dataset <- scale_df(dataset, wts = wts)
   }
 
   vars <- evar
@@ -158,10 +158,10 @@ nn <- function(
 #'
 #' @return Scaled data frame
 #'
-#' @seealso \code{\link{copy_attr}} to copy attributes from a training to a validation dataset
+#' @seealso \code{\link{copy_attr}} to copy attributes from a training to a test dataset
 #'
 #' @export
-scaledf <- function(
+scale_df <- function(
   dataset, center = TRUE, scale = TRUE,
   sf = 2, wts = NULL, calc = TRUE
 ) {
@@ -174,37 +174,44 @@ scaledf <- function(
   descr <- attr(dataset, "description")
   if (calc) {
     if (length(wts) == 0) {
-      ms <- summarise_at(dataset, .vars = cn, .funs = funs(mean(., na.rm = TRUE))) %>%
+      ms <- summarise_at(dataset, .vars = cn, .funs = ~ mean(., na.rm = TRUE)) %>%
         set_attr("description", NULL)
       if (scale) {
-        sds <- summarise_at(dataset, .vars = cn, .funs = funs(sd(., na.rm = TRUE))) %>%
+        sds <- summarise_at(dataset, .vars = cn, .funs = ~ sd(., na.rm = TRUE)) %>%
           set_attr("description", NULL)
       }
     } else {
-      ms <- summarise_at(dataset, .vars = cn, .funs = funs(weighted.mean(., wts, na.rm = TRUE))) %>%
+      ms <- summarise_at(dataset, .vars = cn, .funs = ~ weighted.mean(., wts, na.rm = TRUE)) %>%
         set_attr("description", NULL)
       if (scale) {
-        sds <- summarise_at(dataset, .vars = cn, .funs = funs(weighted.sd(., wts, na.rm = TRUE))) %>%
+        sds <- summarise_at(dataset, .vars = cn, .funs = ~ weighted.sd(., wts, na.rm = TRUE)) %>%
           set_attr("description", NULL)
       }
     }
   } else {
-    ms <- attr(dataset, "ms")
-    sds <- attr(dataset, "sds")
+    ms <- attr(dataset, "radiant_ms")
+    sds <- attr(dataset, "radiant_sds")
     if (is.null(ms) && is.null(sds)) return(dataset)
   }
   if (center && scale) {
-    mutate_at(dataset, .vars = intersect(names(ms), cn), .funs = funs((. - ms$.) / (sf * sds$.))) %>%
-      set_attr("ms", ms) %>%
-      set_attr("sds", sds) %>%
+    icn <- intersect(names(ms), cn)
+    dataset[icn] <- lapply(icn, function(var) (dataset[[var]] - ms[[var]]) / (sf * sds[[var]]))
+    dataset %>%
+      set_attr("radiant_ms", ms) %>%
+      set_attr("radiant_sds", sds) %>%
+      set_attr("radiant_sf", sf) %>%
       set_attr("description", descr)
   } else if (center) {
-    mutate_at(dataset, .vars = intersect(names(ms), cn), .funs = funs(. - ms$.)) %>%
-      set_attr("ms", ms) %>%
+    icn <- intersect(names(ms), cn)
+    dataset[icn] <- lapply(icn, function(var) dataset[[var]] - ms[[var]])
+    dataset %>%
+      set_attr("radiant_ms", ms) %>%
       set_attr("description", descr)
   } else if (scale) {
-    mutate_at(dataset, .vars = intersect(names(sds), cn), .funs = funs(. / (sf * sds$.))) %>%
-      set_attr("sds", sds) %>%
+    icn <- intersect(names(sds), cn)
+    dataset[icn] <- lapply(icn, function(var) dataset[[var]] / (sf * sds[[var]]))
+      set_attr("radiant_sds", sds) %>%
+      set_attr("radiant_sf", sf) %>%
       set_attr("description", descr)
   } else {
     dataset
@@ -238,7 +245,7 @@ summary.nn <- function(object, prn = TRUE, ...) {
     cat("Activation function  : Linear (regression)")
   }
   cat("\nData                 :", object$df_name)
-  if (object$data_filter %>% gsub("\\s", "", .) != "") {
+  if (!is_empty(object$data_filter)) {
     cat("\nFilter               :", gsub("\\n", "", object$data_filter))
   }
   cat("\nResponse variable    :", object$rvar)
@@ -270,14 +277,12 @@ summary.nn <- function(object, prn = TRUE, ...) {
   } else {
     if (prn) {
       cat("Weights              :\n")
-      out <- capture.output(summary(object$model))[-1:-2]
-      if (nchar(out[1]) > 150) {
-        oop <- base::options(width = 100)
-        on.exit(base::options(oop), add = TRUE)
-      }
-      gsub("^", "  ", out) %>%
-      paste0(collapse = "\n") %>%
-      cat("\n")
+      oop <- base::options(width = 100)
+      on.exit(base::options(oop), add = TRUE)
+      capture.output(summary(object$model))[-1:-2] %>%
+        gsub("^", "  ", .) %>%
+        paste0(collapse = "\n") %>%
+        cat("\n")
     }
   }
 }
@@ -407,7 +412,7 @@ predict.nn <- function(
   }
 
   predict_model(object, pfun, "nn.predict", pred_data, pred_cmd, conf_lev = 0.95, se = FALSE, dec) %>%
-    set_attr("pred_data", df_name)
+    set_attr("radiant_pred_data", df_name)
 }
 
 #' Print method for predict.nn
@@ -419,3 +424,153 @@ predict.nn <- function(
 #' @export
 print.nn.predict <- function(x, ..., n = 10)
   print_predict_model(x, ..., n = n, header = "Neural Network")
+
+#' Cross-validation for a Neural Network
+#'
+#' @details See \url{https://radiant-rstats.github.io/docs/model/nn.html} for an example in Radiant
+#'
+#' @param object Object of type "nn" or "nnet"
+#' @param K Number of cross validation passes to use
+#' @param repeats Repeated cross validation
+#' @param size Number of units (nodes) in the hidden layer
+#' @param decay Parameter decay
+#' @param seed Random seed to use as the starting point
+#' @param trace Print progress
+#' @param fun Function to use for model evaluation (i.e., auc for classification and RMSE for regression)
+#' @param ... Additional arguments to be passed to 'fun'
+#'
+#' @return A data.frame sorted by the mean of the performance metric
+#'
+#' @seealso \code{\link{nn}} to generate an initial model that can be passed to cv.nn
+#' @seealso \code{\link{Rsq}} to calculate an R-squared measure for a regression
+#' @seealso \code{\link{RMSE}} to calculate the Root Mean Squared Error for a regression
+#' @seealso \code{\link{MAE}} to calculate the Mean Absolute Error for a regression
+#' @seealso \code{\link{auc}} to calculate the area under the ROC curve for classification
+#' @seealso \code{\link{profit}} to calculate profits for classification at a cost/margin threshold
+#'
+#' @importFrom nnet nnet.formula
+#' @importFrom shiny getDefaultReactiveDomain withProgress incProgress
+#'
+#' @examples
+#' \dontrun{
+#' result <- nn(dvd, "buy", c("coupon", "purch", "last"))
+#' cv.nn(result, decay = seq(0, 1, .5), size = 1:2)
+#' cv.nn(result, decay = seq(0, 1, .5), size = 1:2, fun = profit, cost = 1, margin = 5)
+#' result <- nn(diamonds, "price", c("carat", "color", "clarity"), type = "regression")
+#' cv.nn(result, decay = seq(0, 1, .5), size = 1:2)
+#' cv.nn(result, decay = seq(0, 1, .5), size = 1:2, fun = Rsq)
+#' }
+#'
+#' @export
+cv.nn <- function(
+  object, K = 5, repeats = 1, decay = seq(0, 1, .2), size = 1:5,
+  seed = 1234, trace = TRUE, fun, ...
+) {
+
+  if (inherits(object, "nn")) {
+    ms <- attr(object$model$model, "radiant_ms")[[object$rvar]]
+    sds <- attr(object$model$model, "radiant_sds")[[object$rvar]]
+    if(length(sds) == 0) {
+      sds <- sf <- 1
+    } else {
+      sf <- attr(object$model$model, "radiant_sf")
+      sf <- ifelse(length(sf) == 0, 2, sf)
+    }
+    object <- object$model
+  } else {
+    ms <- 0
+    sds <- 1
+    sf <- 1
+  }
+
+  if (inherits(object, "nnet")) {
+    dv <- as.character(object$call$formula[[2]])
+    m <- eval(object$call[["data"]])
+    weights <- eval(object$call[["weights"]])
+    if (is.numeric(m[[dv]])) {
+      type <- "regression"
+    } else {
+      type <- "classification"
+      if (is.factor(m[[dv]])) {
+        lev <- levels(m[[dv]])[1]
+      } else if (is.logical(m[[dv]])) {
+        lev <- TRUE
+      } else {
+        stop("The level to use for classification is not clear. Use a factor of logical as the response variable")
+      }
+    }
+  } else {
+    stop("The model object does not seems to be a neural network")
+  }
+
+  set.seed(seed)
+  tune_grid <- expand.grid(decay = decay, size = size)
+  out <- data.frame(mean = NA, std = NA, min = NA, max = NA, decay = tune_grid[["decay"]], size = tune_grid[["size"]])
+
+  if (missing(fun)) {
+    if (type == "classification") {
+      fun = radiant.model::auc
+      cn <- "AUC (mean)"
+    } else {
+      fun = radiant.model::RMSE
+      cn <- "RMSE (mean)"
+    }
+  } else {
+    cn <- glue("{deparse(substitute(fun))} (mean)")
+  }
+
+  if (length(shiny::getDefaultReactiveDomain()) > 0) {
+    trace <- FALSE
+    incProgress <- shiny::incProgress
+    withProgress <- shiny::withProgress
+  } else {
+    incProgress <- function(...) {}
+    withProgress <- function(...) list(...)[["expr"]]
+  }
+
+  nitt <- nrow(tune_grid)
+  withProgress(message = "Running cross-validation (nn)", value = 0, {
+    for (i in seq_len(nitt)) {
+      perf <- double(K * repeats)
+      object$call[["decay"]] <- tune_grid[i, "decay"]
+      object$call[["size"]] <- tune_grid[i, "size"]
+      if (trace) cat("Working on size", tune_grid[i, "size"], "decay", tune_grid[i, "decay"], "\n")
+      for (j in seq_len(repeats)) {
+        rand <- sample(K, nrow(m), replace = TRUE)
+        for (k in seq_len(K)) {
+          object$call[["data"]] <- quote(m[rand != k, , drop = FALSE])
+          if (length(weights) > 0) {
+            object$call[["weights"]] <- weights[rand != k]
+          }
+          pred <- predict(eval(object$call), newdata = m[rand == k, , drop = FALSE])[,1]
+          if (type == "classification") {
+            if (missing(...)) {
+              perf[k + (j - 1) * K] <- fun(pred, unlist(m[rand == k, dv]), lev)
+            } else {
+              perf[k + (j - 1) * K] <- fun(pred, unlist(m[rand == k, dv]), lev, ...)
+            }
+          } else {
+            pred <- pred * sf * sds + ms
+            rvar <- unlist(m[rand == k, dv]) * sf * sds + ms
+            if (missing(...)) {
+              perf[k + (j - 1) * K] <- fun(pred, rvar)
+            } else {
+              perf[k + (j - 1) * K] <- fun(pred, rvar, ...)
+            }
+          }
+        }
+      }
+      out[i,1:4] <- c(mean(perf), sd(perf), min(perf), max(perf))
+      incProgress(1/nitt, detail = paste("\nCompleted run", i, "out of", nitt))
+    }
+  })
+
+  if (type == "classification") {
+    out <- arrange(out, desc(mean))
+  } else {
+    out <- arrange(out, mean)
+  }
+  ## show evaluation metric in column name
+  colnames(out)[1] <- cn
+  out
+}

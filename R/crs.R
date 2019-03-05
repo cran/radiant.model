@@ -2,7 +2,7 @@
 #'
 #' @details See \url{https://radiant-rstats.github.io/docs/model/crs.html} for an example in Radiant
 #'
-#' @param dataset Dataset 
+#' @param dataset Dataset
 #' @param id String with name of the variable containing user ids
 #' @param prod String with name of the variable with product ids
 #' @param pred Products to predict for
@@ -15,10 +15,10 @@
 #' @seealso \code{\link{plot.crs}} to plot results if the actual ratings are available
 #'
 #' @examples
-#' crs(ratings, id = "Users", prod = "Movies", pred = c("M6", "M7", "M8", "M9", "M10"), 
+#' crs(ratings, id = "Users", prod = "Movies", pred = c("M6", "M7", "M8", "M9", "M10"),
 #'     rate = "Ratings", data_filter = "training == 1") %>% str()
 #'
-#' @importFrom dplyr distinct_
+#' @importFrom dplyr distinct_at
 #'
 #' @export
 crs <- function(dataset, id, prod, pred, rate, data_filter = "") {
@@ -34,7 +34,7 @@ crs <- function(dataset, id, prod, pred, rate, data_filter = "") {
 
   ## make sure spread doesn't complain
   cn <- colnames(dataset)
-  nr <- distinct_(dataset, .dots = base::setdiff(cn, rate), .keep_all = TRUE) %>% 
+  nr <- dplyr::distinct_at(dataset, .vars = base::setdiff(cn, rate), .keep_all = TRUE) %>%
     nrow()
   if (nr < nrow(dataset)) {
     return("Rows are not unique. Data not appropriate for collaborative filtering" %>% add_class("crs"))
@@ -50,7 +50,7 @@ crs <- function(dataset, id, prod, pred, rate, data_filter = "") {
   ## can use : for long sets of products to predict for
   if (any(grepl(":", pred))) {
     pred <- select(
-      dataset[1, , drop = FALSE], 
+      dataset[1, , drop = FALSE],
       !!! rlang::parse_exprs(paste0(pred, collapse = ";"))
     ) %>% colnames()
   }
@@ -58,7 +58,7 @@ crs <- function(dataset, id, prod, pred, rate, data_filter = "") {
   ## stop if insufficient overlap in ratings
   if (length(pred) >= (ncol(dataset) - 1)) {
     return("Cannot predict for all products. Ratings must overlap on at least two products." %>% add_class("crs"))
-  } 
+  }
 
   if (length(vars) < (ncol(dataset) - 1)) {
     vars <- evar <- colnames(dataset)[-1]
@@ -72,21 +72,21 @@ crs <- function(dataset, id, prod, pred, rate, data_filter = "") {
   ## average scores and rankings
   avg <- dataset[uid, , drop = FALSE] %>%
     select(nind) %>%
-    summarise_all(funs(mean), na.rm = TRUE)
+    summarise_all(mean, na.rm = TRUE)
   ravg <- avg
   ravg[1, ] <- min_rank(desc(avg))
-  ravg <- mutate_all(ravg, funs(as.integer))
+  ravg <- mutate_all(ravg, as.integer)
 
   ## actual scores and rankings (if available, else will be NA)
   act <- dataset[-uid, , drop = FALSE] %>% select(nind)
   ract <- act
 
   if (nrow(act) == 0) {
-    return("Invalid filter used. Users to predict for should not be in the training set." %>% 
+    return("Invalid filter used. Users to predict for should not be in the training set." %>%
       add_class("crs"))
   }
 
-  rank <- apply(act, 1, function(x) as.integer(min_rank(desc(x)))) %>% 
+  rank <- apply(act, 1, function(x) as.integer(min_rank(desc(x)))) %>%
     {if (length(pred) == 1) . else t(.)}
   ract[, pred] <- rank
   ract <- bind_cols(idv[-uid, , drop = FALSE], ract)
@@ -108,7 +108,7 @@ crs <- function(dataset, id, prod, pred, rate, data_filter = "") {
   }
   ## comfirmed to produce consistent results -- see cf-demo-missing-state.rda and cf-demo-missing.xlsx
   srate[is.na(srate)] <- 0
-  srate <- mutate_all(as.data.frame(srate, stringsAsFactors = FALSE), funs(ifelse(is.infinite(.), 0, .)))
+  srate <- mutate_all(as.data.frame(srate, stringsAsFactors = FALSE), ~ ifelse(is.infinite(.), 0, .))
   cors <- sshhr(cor(t(dataset[uid, ind]), t(dataset[-uid, ind]), use = "pairwise.complete.obs"))
 
   ## comfirmed to produce correct results -- see cf-demo-missing-state.rda and cf-demo-missing.xlsx
@@ -163,7 +163,7 @@ crs <- function(dataset, id, prod, pred, rate, data_filter = "") {
 #' @seealso \code{\link{plot.crs}} to plot results if the actual ratings are available
 #'
 #' @examples
-#' crs(ratings, id = "Users", prod = "Movies", pred = c("M6", "M7", "M8", "M9", "M10"), 
+#' crs(ratings, id = "Users", prod = "Movies", pred = c("M6", "M7", "M8", "M9", "M10"),
 #'     rate = "Ratings", data_filter = "training == 1") %>% summary()
 #'
 #' @export
@@ -172,7 +172,7 @@ summary.crs <- function(object, n = 36, dec = 2, ...) {
 
   cat("Collaborative filtering")
   cat("\nData       :", object$df_name)
-  if (object$data_filter %>% gsub("\\s", "", .) != "") {
+  if (!is_empty(object$data_filter)) {
     cat("\nFilter     :", gsub("\\n", "", object$data_filter))
   }
   cat("\nUser id    :", object$id)
@@ -213,20 +213,22 @@ summary.crs <- function(object, n = 36, dec = 2, ...) {
 
     ## best 3 based on cf contains best product
     best <- which(!object$rcf[, -1, drop = FALSE] < 4, arr.ind = TRUE)
-    best[, "col"] <- best[, "col"] + 1 
+    best[, "col"] <- best[, "col"] + 1
     object$ract[best] <- NA
     incf3 <- mean(rowSums(object$ract == 1, na.rm = TRUE) > 0)
     cat("\n- Top 3 based on collaborative filtering contains the best product", format_nr(incf3, dec = 1, perc = TRUE), "of the time\n")
   }
 
-  object$recommendations[is.na(object$recommendations)] <- ""
   cat("\nRecommendations:\n\n")
   if (n == -1) {
     cat("\n")
-    print(format_df(object$recommendations, dec = dec), row.names = FALSE)
+    format_df(object$recommendations, dec = dec) %>%
+      {.[. == "NA"] <- ""; .} %>%
+      print(row.names = FALSE)
   } else {
-    head(object$recommendations, n) %>% 
-      format_df(dec = dec) %>% 
+    head(object$recommendations, n) %>%
+      format_df(dec = dec) %>%
+      {.[. == "NA"] <- ""; .} %>%
       print(row.names = FALSE)
   }
 }
@@ -284,8 +286,8 @@ store.crs <- function(dataset, object, name, ...) {
   } else {
      stop(
       paste0(
-        "This function is deprecated. Use the code below instead:\n\n", 
-        name, " <- ", deparse(substitute(object)), "$recommendations\nregister(\"", 
+        "This function is deprecated. Use the code below instead:\n\n",
+        name, " <- ", deparse(substitute(object)), "$recommendations\nregister(\"",
         name, ")"
       ),
       call. = FALSE

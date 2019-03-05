@@ -32,7 +32,7 @@ regress <- function(dataset, rvar, evar, int = "", check = "", data_filter = "")
   df_name <- if (is_string(dataset)) dataset else deparse(substitute(dataset))
   dataset <- get_data(dataset, c(rvar, evar), filt = data_filter)
 
-  if (any(summarise_all(dataset, funs(does_vary)) == FALSE)) {
+  if (any(summarise_all(dataset, does_vary) == FALSE)) {
     return("One or more selected variables show no variation. Please select other variables." %>%
       add_class("regress"))
   }
@@ -48,9 +48,9 @@ regress <- function(dataset, rvar, evar, int = "", check = "", data_filter = "")
   isNum <- sapply(dataset, is.numeric)
   if (sum(isNum) > 0) {
     if ("standardize" %in% check) {
-      dataset <- scaledf(dataset)
+      dataset <- scale_df(dataset)
     } else if ("center" %in% check) {
-      dataset <- scaledf(dataset, scale = FALSE)
+      dataset <- scale_df(dataset, scale = FALSE)
     }
   }
 
@@ -82,12 +82,13 @@ regress <- function(dataset, rvar, evar, int = "", check = "", data_filter = "")
 
   ## needed for prediction if standardization or centering is used
   if ("standardize" %in% check || "center" %in% check) {
-    attr(model$model, "ms") <- attr(dataset, "ms")
-    attr(model$model, "sds") <- attr(dataset, "sds")
+    attr(model$model, "radiant_ms") <- attr(dataset, "radiant_ms")
+    attr(model$model, "radiant_sds") <- attr(dataset, "radiant_sds")
+    attr(model$model, "radiant_sf") <- attr(dataset, "radiant_sf")
   }
 
-  attr(model$model, "min") <- mmx[["min"]]
-  attr(model$model, "max") <- mmx[["max"]]
+  # attr(model$model, "radiant_min") <- mmx[["min"]]
+  # attr(model$model, "radiant_max") <- mmx[["max"]]
 
   coeff <- tidy(model) %>% as.data.frame()
   colnames(coeff) <- c("  ", "coefficient", "std.error", "t.value", "p.value")
@@ -99,14 +100,11 @@ regress <- function(dataset, rvar, evar, int = "", check = "", data_filter = "")
     coeff$p.value <- 2 * pt(abs(coeff$t.value), df = nrow(dataset) - nrow(coeff), lower.tail = FALSE)
   }
 
-  # coeff$` ` <- sig_stars(coeff$p.value) %>% format(justify = "left")
   coeff$sig_star  <- sig_stars(coeff$p.value) %>% format(justify = "left")
-  # colnames(coeff) <- c("  ", "coefficient", "std.error", "t.value", "p.value", " ")
   colnames(coeff) <- c("label", "coefficient", "std.error", "t.value", "p.value", "sig_star")
   hasLevs <- sapply(select(dataset, -1), function(x) is.factor(x) || is.logical(x) || is.character(x))
   if (sum(hasLevs) > 0) {
     for (i in names(hasLevs[hasLevs])) {
-      # coeff$`  ` %<>% gsub(paste0("^", i), paste0(i, "|"), .) %>%
       coeff$label %<>% gsub(paste0("^", i), paste0(i, "|"), .) %>%
         gsub(paste0(":", i), paste0(":", i, "|"), .)
     }
@@ -167,7 +165,7 @@ summary.regress <- function(
 
   cat("Linear regression (OLS)\n")
   cat("Data     :", object$df_name, "\n")
-  if (object$data_filter %>% gsub("\\s", "", .) != "") {
+  if (!is_empty(object$data_filter)) {
     cat("Filter   :", gsub("\\n", "", object$data_filter), "\n")
   }
   cat("Response variable    :", object$rvar, "\n")
@@ -241,8 +239,8 @@ summary.regress <- function(
     ss_tab <- data.frame(matrix(nrow = 3, ncol = 2), stringsAsFactors = FALSE)
     rownames(ss_tab) <- c("Regression", "Error", "Total")
     colnames(ss_tab) <- c("df", "SS")
-    ss_tab$df <- c(df_reg, df_err, df_tot)
-    ss_tab$SS <- c(ss_reg, ss_err, ss_tot)
+    ss_tab$df <- c(df_reg, df_err, df_tot) %>% format_nr(dec = 0)
+    ss_tab$SS <- c(ss_reg, ss_err, ss_tot) %>% format_nr(dec = dec)
     cat("Sum of squares:\n")
     format(ss_tab, scientific = FALSE) %>% print()
     cat("\n")
@@ -256,7 +254,7 @@ summary.regress <- function(
       if (length(attributes(object$model$terms)$term.labels) > 1) {
         cat("Variance Inflation Factors\n")
         car::vif(object$model) %>%
-          {if (is.null(dim(.))) . else .[, "GVIF^(1/(2*Df))"]} %>% ## needed when factors are included
+          {if (is.null(dim(.))) . else .[, "GVIF"]} %>% ## needed when factors are included
           data.frame("VIF" = ., "Rsq" = 1 - 1 / ., stringsAsFactors = FALSE) %>%
           round(dec) %>%
           .[order(.$VIF, decreasing = T), ] %>%
@@ -285,7 +283,7 @@ summary.regress <- function(
         as.data.frame(stringsAsFactors = FALSE) %>%
         set_colnames(c("Low", "High")) %>%
         {.$`+/-` <- (.$High - .$Low) / 2; .} %>%
-        mutate_all(funs(sprintf(paste0("%.", dec, "f"), .))) %>%
+        mutate_all(~ sprintf(paste0("%.", dec, "f"), .)) %>%
         cbind(coeff[[2]], .) %>%
         set_rownames(object$coeff$label) %>%
         set_colnames(c("coefficient", ci_perc[1], ci_perc[2], "+/-")) %T>%
@@ -637,8 +635,8 @@ predict.regress <- function(
   }
 
   predict_model(object, pfun, "regress.predict", pred_data, pred_cmd, conf_lev, se, dec) %>%
-    set_attr("interval", interval) %>%
-    set_attr("pred_data", df_name)
+    set_attr("radiant_interval", interval) %>%
+    set_attr("radiant_pred_data", df_name)
 }
 
 #' Predict method for model functions
@@ -673,15 +671,17 @@ predict_model <- function(
   if (!is_empty(pred_cmd) && is_empty(pred_data)) {
     dat <- object$model$model
     if ("center" %in% object$check) {
-      ms <- attr(object$model$model, "ms")
+      ms <- attr(object$model$model, "radiant_ms")
       if (!is.null(ms)) {
-        dat <- mutate_at(dat, .vars = names(ms), .funs = funs(. + ms$.))
+        dat[names(ms)] <- lapply(names(ms), function(var) (dat[[var]] + ms[[var]]))
       }
     } else if ("standardize" %in% object$check) {
-      ms <- attr(object$model$model, "ms")
-      sds <- attr(object$model$model, "sds")
+      ms <- attr(object$model$model, "radiant_ms")
+      sds <- attr(object$model$model, "radiant_sds")
       if (!is.null(ms) && !is.null(sds)) {
-        dat <- mutate_at(dat, .vars = names(ms), .funs = funs(. * 2 * sds$. + ms$.))
+        sf <- attr(object$model$model, "radiant_sf")
+        sf <- ifelse(is.null(sf), 2, sf)
+        dat[names(ms)] <- lapply(names(ms), function(var) (dat[[var]] * sf * sds[[var]] + ms[[var]]))
       }
     }
 
@@ -704,9 +704,8 @@ predict_model <- function(
       dat_classes <- get_class(dat)
     }
 
-    ## weights mess-up data manipulation below so remove from
-    wid <- which(names(dat_classes) %in% "(weights)")
-    if (length(wid) > 0) dat_classes <- dat_classes[-wid]
+    ## weights and interaction terms mess-up data manipulation below so remove from
+    dat_classes <- dat_classes[!grepl("(^\\(weights\\)$)|(^I\\(.+\\^[0-9]+\\)$)", names(dat_classes))]
 
     isFct <- dat_classes == "factor"
     isChar <- dat_classes == "character"
@@ -720,16 +719,16 @@ predict_model <- function(
 
     plug_data <- data.frame(init___ = 1, stringsAsFactors = FALSE)
     if (sum(isNum) > 0) {
-      plug_data %<>% bind_cols(., summarise_at(dat, .vars = vars[isNum], .funs = funs(mean)))
+      plug_data %<>% bind_cols(., summarise_at(dat, .vars = vars[isNum], .funs = mean))
     }
     if (sum(isFct) > 0) {
-      plug_data %<>% bind_cols(., summarise_at(dat, .vars = vars[isFct], .funs = funs(max_ffreq)))
+      plug_data %<>% bind_cols(., summarise_at(dat, .vars = vars[isFct], .funs = max_ffreq))
     }
     if (sum(isChar) > 0) {
-      plug_data %<>% bind_cols(., summarise_at(dat, .vars = vars[isChar], .funs = funs(max_freq)))
+      plug_data %<>% bind_cols(., summarise_at(dat, .vars = vars[isChar], .funs = max_freq))
     }
     if (sum(isLog) > 0) {
-      plug_data %<>% bind_cols(., summarise_at(dat, .vars = vars[isLog], .funs = funs(max_lfreq)))
+      plug_data %<>% bind_cols(., summarise_at(dat, .vars = vars[isLog], .funs = max_lfreq))
     }
 
     rm(dat)
@@ -738,7 +737,7 @@ predict_model <- function(
       return("The model includes data-types that cannot be used for\nprediction at this point\n")
     } else {
       if (sum(names(pred) %in% names(plug_data)) < length(names(pred))) {
-        return("The expression entered contains variable names that are not in the model.\nPlease try again.\n\n")
+        return("The command entered contains variable names that are not in the model.\nPlease try again.\n\n")
       } else {
         plug_data[names(pred)] <- list(NULL)
         pred <- cbind(select(plug_data, -1), pred)
@@ -748,35 +747,43 @@ predict_model <- function(
     ## generate predictions for all observations in the dataset
     pred <- get_data(pred_data, filt = "", na.rm = FALSE)
     pred_names <- colnames(pred)
-    pred <- try(select_at(pred, .vars = vars), silent = TRUE)
-
-    if (inherits(pred, "try-error")) {
-      return(paste0("All variables in the model must also be in the prediction data\nVariables in the model: ", paste0(vars, collapse = ", "), "\nVariables not available in prediction data: ", paste0(vars[!vars %in% pred_names], collapse = ", ")))
+    vars_in <- vars %in% pred_names
+    ## keep all variables in the prediction data for the "customized" prediction
+    if (!sum(vars_in) == length(vars)) {
+      return(paste0("All variables in the model must also be in the prediction data\nVariables in the model: ", paste0(vars, collapse = ", "), "\nVariables not available in prediction data: ", paste0(vars[!vars_in], collapse = ", ")))
     }
 
     if (!is_empty(pred_cmd)) {
       pred_cmd %<>% paste0(., collapse = ";") %>%
         gsub("\"", "\'", .) %>%
-        gsub("\\s+", "", .) %>%
+        gsub("\\s+", " ", .) %>%
         gsub("<-", "=", .)
 
-      vars <- strsplit(pred_cmd, ";")[[1]] %>%
+      cmd_vars <- strsplit(pred_cmd, ";")[[1]] %>%
         strsplit(., "=") %>%
-        sapply("[", 1)
+        sapply("[", 1) %>%
+        gsub("(^\\s+|\\s+$)", "", .)
+
+      cmd_vars_in <- cmd_vars %in% vars
+      if (sum(cmd_vars_in) < length(cmd_vars)) {
+        return(paste0("The command entered contains variable names that are not in the model\nVariables in the model: ", paste0(vars, collapse = ", "), "\nVariables not available in prediction data: ", paste0(cmd_vars[!cmd_vars_in], collapse = ", ")))
+      }
 
       dots <- rlang::parse_exprs(pred_cmd) %>%
-        set_names(vars)
+        set_names(cmd_vars)
 
       pred <- try(mutate(pred, !!! dots), silent = TRUE)
       if (inherits(pred, "try-error")) {
         return(paste0("The command entered did not generate valid data for prediction. The\nerror message was:\n\n", attr(pred, "condition")$message, "\n\nPlease try again. Examples are shown in the help file."))
       }
+
       pred_type <- "datacmd"
     } else {
       pred_type <- "data"
     }
 
-    pred <- na.omit(pred)
+    ## only keep the variables used in the model
+    pred <- select_at(pred, .vars = vars) %>% na.omit()
   }
 
   if ("crtree" %in% class(object)) {
@@ -787,14 +794,15 @@ predict_model <- function(
 
   ## scale predictors if needed
   if ("center" %in% object$check || "standardize" %in% object$check) {
-    attr(pred, "ms") <- attr(object$model$model, "ms")
+    attr(pred, "radiant_ms") <- attr(object$model$model, "radiant_ms")
     if ("standardize" %in% object$check) {
       scale <- TRUE
-      attr(pred, "sds") <- attr(object$model$model, "sds")
+      attr(pred, "radiant_sds") <- attr(object$model$model, "radiant_sds")
+      attr(pred, "radiant_sf") <- attr(object$model$model, "radiant_sf")
     } else {
       scale <- FALSE
     }
-    pred_val <- scaledf(pred, center = TRUE, scale = scale, calc = FALSE) %>%
+    pred_val <- scale_df(pred, center = TRUE, scale = scale, calc = FALSE) %>%
       pfun(object$model, ., se = se, conf_lev = conf_lev)
   } else {
     ## generate predictions using the supplied function (pfun)
@@ -804,15 +812,17 @@ predict_model <- function(
   if (!inherits(pred_val, "try-error")) {
     ## scale rvar for regression models
     if ("center" %in% object$check) {
-      ms <- attr(object$model$model, "ms")[[object$rvar]]
+      ms <- attr(object$model$model, "radiant_ms")[[object$rvar]]
       if (!is.null(ms)) {
         pred_val[["Prediction"]] <- pred_val[["Prediction"]] + ms
       }
     } else if ("standardize" %in% object$check) {
-      ms <- attr(object$model$model, "ms")[[object$rvar]]
-      sds <- attr(object$model$model, "sds")[[object$rvar]]
+      ms <- attr(object$model$model, "radiant_ms")[[object$rvar]]
+      sds <- attr(object$model$model, "radiant_sds")[[object$rvar]]
       if (!is.null(ms) && !is.null(sds)) {
-        pred_val[["Prediction"]] <- pred_val[["Prediction"]] * 2 * sds + ms
+        sf <- attr(object$model$model, "radiant_sf")
+        sf <- ifelse(is.null(sf), 2, sf)
+        pred_val[["Prediction"]] <- pred_val[["Prediction"]] * sf * sds + ms
       }
     }
 
@@ -825,16 +835,16 @@ predict_model <- function(
       vars <- c(object$evar, colnames(pred_val))
     }
 
-    pred <- set_attr(pred, "df_name", object$df_name) %>%
-      set_attr("data_filter", object$data_filter) %>%
-      set_attr("rvar", object$rvar) %>%
-      set_attr("lev", object$lev) %>%
-      set_attr("evar", object$evar) %>%
-      set_attr("wtsname", object$wtsname) %>%
-      set_attr("vars", vars) %>%
-      set_attr("dec", dec) %>%
-      set_attr("pred_type", pred_type) %>%
-      set_attr("pred_cmd", pred_cmd)
+    pred <- set_attr(pred, "radiant_df_name", object$df_name) %>%
+      set_attr("radiant_data_filter", object$data_filter) %>%
+      set_attr("radiant_rvar", object$rvar) %>%
+      set_attr("radiant_lev", object$lev) %>%
+      set_attr("radiant_evar", object$evar) %>%
+      set_attr("radiant_wtsname", object$wtsname) %>%
+      set_attr("radiant_vars", vars) %>%
+      set_attr("radiant_dec", dec) %>%
+      set_attr("radiant_pred_type", pred_type) %>%
+      set_attr("radiant_pred_cmd", pred_cmd)
 
     return(add_class(pred, c(mclass, "model.predict")))
   } else {
@@ -853,31 +863,31 @@ predict_model <- function(
 print_predict_model <- function(x, ..., n = 10, header = "") {
 
   class(x) <- "data.frame"
-  data_filter <- attr(x, "data_filter")
-  vars <- attr(x, "vars")
-  pred_type <- attr(x, "pred_type")
-  pred_data <- attr(x, "pred_data")
+  data_filter <- attr(x, "radiant_data_filter")
+  vars <- attr(x, "radiant_vars")
+  pred_type <- attr(x, "radiant_pred_type")
+  pred_data <- attr(x, "radiant_pred_data")
 
-  pred_cmd <- gsub("\\s*([\\=\\+\\*-])\\s*", " \\1 ", attr(x, "pred_cmd")) %>%
+  pred_cmd <- gsub("\\s*([\\=\\+\\*-])\\s*", " \\1 ", attr(x, "radiant_pred_cmd")) %>%
     gsub("(\\s*[;,]\\s*)", "\\1 ", .) %>%
     gsub("\\s+=\\s+=\\s+", " == ", .)
 
   cat(header)
-  cat("\nData                 :", attr(x, "df_name"), "\n")
-  if (data_filter %>% gsub("\\s", "", .) != "") {
+  cat("\nData                 :", attr(x, "radiant_df_name"), "\n")
+  if (!is_empty(data_filter)) {
     cat("Filter               :", gsub("\\n", "", data_filter), "\n")
   }
-  cat("Response variable    :", attr(x, "rvar"), "\n")
-  if (!is_empty(attr(x, "lev"))) {
-    cat("Level(s)             :", paste0(attr(x, "lev"), collapse = ", "), "in", attr(x, "rvar"), "\n")
+  cat("Response variable    :", attr(x, "radiant_rvar"), "\n")
+  if (!is_empty(attr(x, "radiant_lev"))) {
+    cat("Level(s)             :", paste0(attr(x, "radiant_lev"), collapse = ", "), "in", attr(x, "radiant_rvar"), "\n")
   }
-  cat("Explanatory variables:", paste0(attr(x, "evar"), collapse = ", "), "\n")
-  if (!is_empty(attr(x, "wtsname"))) {
-    cat("Weights used         :", attr(x, "wtsname"), "\n")
+  cat("Explanatory variables:", paste0(attr(x, "radiant_evar"), collapse = ", "), "\n")
+  if (!is_empty(attr(x, "radiant_wtsname"))) {
+    cat("Weights used         :", attr(x, "radiant_wtsname"), "\n")
   }
 
-  if (!is_empty(attr(x, "interval"), "none")) {
-    cat("Interval             :", attr(x, "interval"), "\n")
+  if (!is_empty(attr(x, "radiant_interval"), "none")) {
+    cat("Interval             :", attr(x, "radiant_interval"), "\n")
   }
 
   if (pred_type == "cmd") {
@@ -891,7 +901,7 @@ print_predict_model <- function(x, ..., n = 10, header = "") {
 
   if (n == -1) {
     cat("\n")
-    format_df(x[, vars, drop = FALSE], attr(x, "dec")) %>%
+    format_df(x[, vars, drop = FALSE], attr(x, "radiant_dec")) %>%
       print(row.names = FALSE)
   } else {
     if (nrow(x) > n) {
@@ -899,7 +909,7 @@ print_predict_model <- function(x, ..., n = 10, header = "") {
     }
     cat("\n")
     head(x[, vars, drop = FALSE], n) %>%
-      format_df(attr(x, "dec")) %>%
+      format_df(attr(x, "radiant_dec")) %>%
       print(row.names = FALSE)
   }
 }
@@ -976,16 +986,17 @@ plot.model.predict <- function(
   }
 
   tmp <- x %>%
-    group_by_at(.vars = tbv) %>%
     select_at(.vars = c(tbv, pvars)) %>%
-    summarise_all(funs(mean))
+    group_by_at(.vars = tbv) %>%
+    summarise_all(mean)
+
   if (color == "none") {
     p <- ggplot(tmp, aes_string(x = xvar, y = "Prediction"))
   } else {
     p <- ggplot(tmp, aes_string(x = xvar, y = "Prediction", color = color, group = color))
   }
 
-  if (length(pvars) == 3) {
+  if (length(pvars) >= 3) {
     if (is.factor(tmp[[xvar]]) || length(unique(tmp[[xvar]])) < 11) {
       p <- p + geom_pointrange(aes_string(ymin = "ymin", ymax = "ymax"), size = .3)
     } else {
@@ -1047,7 +1058,7 @@ store.model.predict <- function(dataset, object, name = "prediction", ...) {
   }
 
   vars <- colnames(object)[seq_len(ind - 1)]
-  indr <- indexr(dataset, vars = vars, filt = "", cmd = attr(object, "pred_cmd"))
+  indr <- indexr(dataset, vars = vars, filt = "", cmd = attr(object, "radiant_pred_cmd"))
   pred <- as.data.frame(matrix(NA, nrow = indr$nr, ncol = ncol(df)), stringsAsFactors = FALSE)
   pred[indr$ind, ] <- as.vector(df) ## as.vector removes all attributes from df
 
@@ -1079,7 +1090,7 @@ store.model <- function(dataset, object, name = "residuals", ...) {
 }
 
 #' Check if main effects for all interaction effects are included in the model
-#' 
+#'
 #' @details If ':' is used to select a range evar is updated. See \url{https://radiant-rstats.github.io/docs/model/regress.html} for an example in Radiant
 #'
 #' @param ev List of explanatory variables provided to \code{\link{regress}} or \code{\link{logistic}}
@@ -1091,25 +1102,22 @@ store.model <- function(dataset, object, name = "residuals", ...) {
 #' @examples
 #' var_check("a:d", c("a","b","c","d"))
 #' var_check(c("a", "b"), c("a", "b"), "a:c")
+#' var_check(c("a", "b"), c("a", "b"), "a:c")
+#' var_check(c("a", "b"), c("a", "b"), c("a:c", "I(b^2)"))
 #'
 #' @export
-var_check <- function(ev, cn, intv = "") {
-
+var_check <- function(ev, cn, intv = c()) {
   ## if : is used to select a range of variables evar is updated
   vars <- ev
   if (length(vars) < length(cn)) vars <- ev <- cn
-
-  if (intv != "" && length(vars) > 1) {
-    if ({
-      intv %>% strsplit(":") %>% unlist()
-    } %in% vars %>% all()) {
+  if (!is_empty(intv)) {
+    if (all(unlist(strsplit(intv[!grepl("\\^", intv)], ":")) %in% vars)) {
       vars <- c(vars, intv)
     } else {
-      cat("Interaction terms contain variables not selected as main effects.\nRemoving all interactions from the estimation")
-      intv <- ""
+      cat("Interaction terms contain variables not selected as main effects.\nRemoving interactions from the estimation\n")
+      intv <- intv[grepl("\\^", intv)]
     }
   }
-
   list(vars = vars, ev = ev, intv = intv)
 }
 
@@ -1117,23 +1125,26 @@ var_check <- function(ev, cn, intv = "") {
 #'
 #' @details See \url{https://radiant-rstats.github.io/docs/model/regress.html} for an example in Radiant
 #'
-#' @param test_var List of variables to use for testing for regress or logistic
+#' @param tv List of variables to use for testing for regress or logistic
 #' @param int Interaction terms specified
 #'
 #' @return A vector of variables names to test
 #'
 #' @examples
+#' test_specs("a", "a:b")
 #' test_specs("a", c("a:b", "b:c"))
+#' test_specs("a", c("a:b", "b:c", "I(c^2)"))
+#' test_specs(c("a", "b", "c"), c("a:b", "b:c", "I(c^2)"))
 #'
 #' @export
-test_specs <- function(test_var, int) {
-  if (unlist(strsplit(int, ":")) %in% test_var %>% any()) {
+test_specs <- function(tv, int) {
+  int <- int[!grepl("\\^", int)]
+  if (any(unlist(strsplit(int, ":")) %in% tv)) {
     cat("Interaction terms contain variables specified for testing.\nRelevant interaction terms are included in the requested test.\n\n")
-    for (tv in test_var) {
-      test_var <- c(test_var, int[grep(tv, int)])
-    }
-    unique(test_var)
+    unique(int[unlist(sapply(tv, grep, int))])
   } else {
-    test_var
+    tv
   }
 }
+
+
