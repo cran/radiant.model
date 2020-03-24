@@ -4,8 +4,19 @@
 \alias{repeater}
 \title{Repeated simulation}
 \usage{
-repeater(dataset, nr = 12, vars = "", grid = "", sum_vars = "",
-  byvar = "sim", fun = "sum", form = "", seed = NULL, name = "")
+repeater(
+  dataset,
+  nr = 12,
+  vars = "",
+  grid = "",
+  sum_vars = "",
+  byvar = ".sim",
+  fun = "sum",
+  form = "",
+  seed = NULL,
+  name = "",
+  envir = parent.frame()
+)
 }
 \arguments{
 \item{dataset}{Return value from the simulater function}
@@ -27,6 +38,8 @@ repeater(dataset, nr = 12, vars = "", grid = "", sum_vars = "",
 \item{seed}{Seed for the repeated simulation}
 
 \item{name}{Deprecated argument}
+
+\item{envir}{Environment to extract data from}
 }
 \description{
 Repeated simulation
@@ -49,8 +62,8 @@ repdat <- repeater(
   nr = 12,
   vars = c("E","price"),
   sum_vars = "profit",
-  byvar = "sim",
-  form = "profit_365 = profit < 36500",
+  byvar = ".sim",
+  form = "profit_365 = profit_sum < 36500",
   seed = 1234,
 )
 

@@ -4,11 +4,27 @@
 \alias{simulater}
 \title{Simulate data for decision analysis}
 \usage{
-simulater(const = "", lnorm = "", norm = "", unif = "",
-  discrete = "", binom = "", pois = "", sequ = "", grid = "",
-  data = NULL, form = "", funcs = "", seed = NULL,
-  nexact = FALSE, ncorr = NULL, name = "", nr = 1000,
-  dataset = NULL)
+simulater(
+  const = "",
+  lnorm = "",
+  norm = "",
+  unif = "",
+  discrete = "",
+  binom = "",
+  pois = "",
+  sequ = "",
+  grid = "",
+  data = NULL,
+  form = "",
+  funcs = "",
+  seed = NULL,
+  nexact = FALSE,
+  ncorr = NULL,
+  name = "",
+  nr = 1000,
+  dataset = NULL,
+  envir = parent.frame()
+)
 }
 \arguments{
 \item{const}{A character vector listing the constants to include in the analysis (e.g., c("cost = 3", "size = 4"))}
@@ -46,6 +62,8 @@ simulater(const = "", lnorm = "", norm = "", unif = "",
 \item{nr}{Number of simulations}
 
 \item{dataset}{Data list from previous simulation. Used by repeater function}
+
+\item{envir}{Environment to extract data from}
 }
 \value{
 A data.frame with the simulated data

@@ -4,8 +4,15 @@
 \alias{predict.nb}
 \title{Predict method for the nb function}
 \usage{
-\method{predict}{nb}(object, pred_data = NULL, pred_cmd = "",
-  pred_names = "", dec = 3, ...)
+\method{predict}{nb}(
+  object,
+  pred_data = NULL,
+  pred_cmd = "",
+  pred_names = "",
+  dec = 3,
+  envir = parent.frame(),
+  ...
+)
 }
 \arguments{
 \item{object}{Return value from \code{\link{nb}}}
@@ -17,6 +24,8 @@
 \item{pred_names}{Names for the predictions to be stored. If one name is provided, only the first column of predictions is stored. If empty, the level in the response variable of the nb model will be used}
 
 \item{dec}{Number of decimals to show}
+
+\item{envir}{Environment to extract data from}
 
 \item{...}{further arguments passed to or from other methods}
 }

@@ -4,9 +4,17 @@
 \alias{predict.logistic}
 \title{Predict method for the logistic function}
 \usage{
-\method{predict}{logistic}(object, pred_data = NULL, pred_cmd = "",
-  conf_lev = 0.95, se = TRUE, interval = "confidence", dec = 3,
-  ...)
+\method{predict}{logistic}(
+  object,
+  pred_data = NULL,
+  pred_cmd = "",
+  conf_lev = 0.95,
+  se = TRUE,
+  interval = "confidence",
+  dec = 3,
+  envir = parent.frame(),
+  ...
+)
 }
 \arguments{
 \item{object}{Return value from \code{\link{logistic}}}
@@ -22,6 +30,8 @@
 \item{interval}{Type of interval calculation ("confidence" or "none"). Set to "none" if se is FALSE}
 
 \item{dec}{Number of decimals to show}
+
+\item{envir}{Environment to extract data from}
 
 \item{...}{further arguments passed to or from other methods}
 }

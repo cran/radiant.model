@@ -1,4 +1,4 @@
-#' Neural Networks
+#' Neural Networks using nnet
 #'
 #' @details See \url{https://radiant-rstats.github.io/docs/model/nn.html} for an example in Radiant
 #'
@@ -12,7 +12,9 @@
 #' @param wts Weights to use in estimation
 #' @param seed Random seed to use as the starting point
 #' @param check Optional estimation parameters ("standardize" is the default)
+#' @param form Optional formula to use instead of rvar and evar
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param envir Environment to extract data from
 #'
 #' @return A list with all variables defined in nn as an object of class nn
 #'
@@ -33,8 +35,18 @@ nn <- function(
   type = "classification", lev = "",
   size = 1, decay = .5, wts = "None",
   seed = NA, check = "standardize",
-  data_filter = ""
+  form,
+  data_filter = "", envir = parent.frame()
 ) {
+
+  if (!missing(form)) {
+    form <- as.formula(format(form))
+    paste0(format(form), collapse = "")
+
+    vars <- all.vars(form)
+    rvar <- vars[1]
+    evar <- vars[-1]
+  }
 
   if (rvar %in% evar) {
     return("Response variable contained in the set of explanatory variables.\nPlease update model specification." %>%
@@ -55,7 +67,7 @@ nn <- function(
   }
 
   df_name <- if (is_string(dataset)) dataset else deparse(substitute(dataset))
-  dataset <- get_data(dataset, vars, filt = data_filter)
+  dataset <- get_data(dataset, vars, filt = data_filter, envir = envir)
 
   if (!is_empty(wts)) {
     if (exists("wtsname")) {
@@ -70,8 +82,10 @@ nn <- function(
     }
   }
 
-  if (any(summarise_all(dataset, .funs = does_vary) == FALSE)) {
-    return("One or more selected variables show no variation. Please select other variables." %>% add_class("nn"))
+  not_vary <- colnames(dataset)[summarise_all(dataset, does_vary) == FALSE]
+  if (length(not_vary) > 0) {
+    return(paste0("The following variable(s) show no variation. Please select other variables.\n\n** ", paste0(not_vary, collapse = ", "), " **") %>%
+      add_class("nn"))
   }
 
   rv <- dataset[[rvar]]
@@ -107,9 +121,11 @@ nn <- function(
     vars <- evar <- colnames(dataset)[-1]
   }
 
+  if (missing(form)) form <- as.formula(paste(rvar, "~ . "))
+
   ## use decay http://stats.stackexchange.com/a/70146/61693
   nninput <- list(
-    formula = as.formula(paste(rvar, "~ . ")),
+    formula = form,
     rang = .1, size = size, decay = decay, weights = wts,
     maxit = 10000, linout = linout, entropy = entropy,
     skip = FALSE, trace = FALSE, data = dataset
@@ -142,7 +158,7 @@ nn <- function(
 
   ## nn model object does not include the data by default
   model$model <- dataset
-  rm(dataset) ## dataset not needed elsewhere
+  rm(dataset, envir) ## dataset not needed elsewhere
 
   as.list(environment()) %>% add_class(c("nn", "model"))
 }
@@ -167,7 +183,7 @@ scale_df <- function(
 ) {
 
   isNum <- sapply(dataset, function(x) is.numeric(x))
-  if (sum(isNum) == 0) return(dataset)
+  if (length(isNum) == 0 || sum(isNum) == 0) return(dataset)
   cn <- names(isNum)[isNum]
 
   ## remove set_attr calls when dplyr removes and keep attributes appropriately
@@ -295,7 +311,8 @@ summary.nn <- function(object, prn = TRUE, ...) {
 #' @param shiny Did the function call originate inside a shiny app
 #' @param plots Plots to produce for the specified Neural Network model. Use "" to avoid showing any plots (default). Options are "olden" or "garson" for importance plots, or "net" to depict the network structure
 #' @param size Font size used
-#' @param nrobs Number of data points to show in scatter plots (-1 for all)
+#' @param pad_x Padding for explanatory variable lables in the network plot. Default value is 0.9, smaller numbers (e.g., 0.5) increase the amount of padding
+#' @param nrobs Number of data points to show in dashboard scatter plots (-1 for all)
 #' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org} for options.
 #' @param ... further arguments passed to or from other methods
 #'
@@ -313,11 +330,11 @@ summary.nn <- function(object, prn = TRUE, ...) {
 #'
 #' @export
 plot.nn <- function(
-  x, plots = "garson", size = 12, nrobs = -1,
+  x, plots = "garson", size = 12, pad_x = 0.9, nrobs = -1,
   shiny = FALSE, custom = FALSE, ...
 ) {
 
-  if (is.character(x)) return(x)
+  if (is.character(x) || !inherits(x$model, "nnet")) return(x)
   plot_list <- list()
   ncol <- 1
 
@@ -341,7 +358,17 @@ plot.nn <- function(
     ## don't need as much spacing at the top and bottom
     mar <- par(mar = c(0, 4.1, 0, 2.1))
     on.exit(par(mar = mar$mar))
-    return(do.call(NeuralNetTools::plotnet, list(mod_in = x$model, x_names = x$coefnames, cex_val = size / 16)))
+    return(do.call(NeuralNetTools::plotnet, list(mod_in = x$model, x_names = x$coefnames, pad_x = pad_x, cex_val = size / 16)))
+  }
+
+  if ("pdp" %in% plots) {
+    ncol <- 2
+    for (pn in x$evar) {
+      plot_list[[pn]] <- pdp::partial(
+        x$model, pred.var = pn, plot = TRUE, rug = TRUE,
+        prob = x$type == "classification", plot.engine = "ggplot2"
+      ) + labs(y = "")
+    }
   }
 
   if (x$type == "regression" && "dashboard" %in% plots) {
@@ -351,15 +378,10 @@ plot.nn <- function(
 
   if (length(plot_list) > 0) {
     if (custom) {
-      if (length(plot_list) == 1) {
-        return(plot_list[[1]])
-      } else {
-        return(plot_list)
-      }
-    }
-
-    sshhr(gridExtra::grid.arrange(grobs = plot_list, ncol = ncol)) %>% {
-      if (shiny) . else print(.)
+      if (length(plot_list) == 1) plot_list[[1]] else plot_list
+    } else {
+      patchwork::wrap_plots(plot_list, ncol = ncol) %>%
+        {if (shiny) . else print(.)}
     }
   }
 }
@@ -372,6 +394,7 @@ plot.nn <- function(
 #' @param pred_data Provide the dataframe to generate predictions (e.g., diamonds). The dataset must contain all columns used in the estimation
 #' @param pred_cmd Generate predictions using a command. For example, `pclass = levels(pclass)` would produce predictions for the different levels of factor `pclass`. To add another variable, create a vector of prediction strings, (e.g., c('pclass = levels(pclass)', 'age = seq(0,100,20)')
 #' @param dec Number of decimals to show
+#' @param envir Environment to extract data from
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
@@ -387,7 +410,7 @@ plot.nn <- function(
 #' @export
 predict.nn <- function(
   object, pred_data = NULL, pred_cmd = "",
-  dec = 3, ...
+  dec = 3, envir = parent.frame(), ...
 ) {
 
   if (is.character(object)) return(object)
@@ -411,7 +434,7 @@ predict.nn <- function(
     pred_val
   }
 
-  predict_model(object, pfun, "nn.predict", pred_data, pred_cmd, conf_lev = 0.95, se = FALSE, dec) %>%
+  predict_model(object, pfun, "nn.predict", pred_data, pred_cmd, conf_lev = 0.95, se = FALSE, dec, envir = envir) %>%
     set_attr("radiant_pred_data", df_name)
 }
 

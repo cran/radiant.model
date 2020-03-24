@@ -4,8 +4,18 @@
 \alias{evalbin}
 \title{Evaluate the performance of different (binary) classification models}
 \usage{
-evalbin(dataset, pred, rvar, lev = "", qnt = 10, cost = 1,
-  margin = 2, train = "All", data_filter = "")
+evalbin(
+  dataset,
+  pred,
+  rvar,
+  lev = "",
+  qnt = 10,
+  cost = 1,
+  margin = 2,
+  train = "All",
+  data_filter = "",
+  envir = parent.frame()
+)
 }
 \arguments{
 \item{dataset}{Dataset}
@@ -25,6 +35,8 @@ evalbin(dataset, pred, rvar, lev = "", qnt = 10, cost = 1,
 \item{train}{Use data from training ("Training"), test ("Test"), both ("Both"), or all data ("All") to evaluate model evalbin}
 
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
+
+\item{envir}{Environment to extract data from}
 }
 \value{
 A list of results

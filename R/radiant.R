@@ -1,5 +1,6 @@
 #' Launch radiant.model in the default browser
 #'
+#' @description Launch radiant.model in the default web browser
 #' @details See \url{https://radiant-rstats.github.io/docs} for documentation and tutorials
 #'
 #' @param state Path to state file to load
@@ -59,16 +60,45 @@ sensitivity <- function(object, ...) UseMethod("sensitivity", object)
 #' Method to render DiagrammeR plots
 #'
 #' @param object DiagrammeR plot
+#' @param shiny Check if function is called from a shiny application
 #' @param ... Additional arguments
 #'
 #' @importFrom DiagrammeR renderDiagrammeR
+#' @importFrom shiny getDefaultReactiveDomain
 #'
 #' @export
-render.DiagrammeR <- function(object, ...) {
+render.DiagrammeR <- function(object, shiny = shiny::getDefaultReactiveDomain(), ...) {
   ## hack for rmarkdown from Report > Rmd and Report > R
-  if (exists("r_environment") && !getOption("radiant.rmarkdown", FALSE)) {
+  if (!is.null(shiny) && !getOption("radiant.rmarkdown", FALSE)) {
     DiagrammeR::renderDiagrammeR(object)
   } else {
     object
   }
+}
+
+#' One hot encoding of data.frames
+#' @param dataset Dataset to endcode
+#' @param all Extract all factor levels (e.g., for tree-based models)
+#' @param df Return a data.frame (tibble)
+#'
+#' @examples
+#' head(onehot(diamonds, df = TRUE))
+#' head(onehot(diamonds, all = TRUE, df = TRUE))
+#' @importFrom stats contrasts
+#'
+#' @export
+onehot <- function(dataset, all = FALSE, df = FALSE) {
+  if (all) {
+    mm <- model.matrix(~ 0 + .,
+      data = dataset,
+      contrasts.arg = lapply(
+        dataset[, vapply(dataset, is.factor, logical(1))],
+        contrasts,
+        contrasts = FALSE
+      )
+    )
+  } else {
+    mm <- model.matrix(~., model.frame(~., dataset))
+  }
+  if (df) as.data.frame(mm, stringsAsFactors = FALSE) else mm
 }

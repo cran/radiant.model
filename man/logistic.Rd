@@ -4,8 +4,19 @@
 \alias{logistic}
 \title{Logistic regression}
 \usage{
-logistic(dataset, rvar, evar, lev = "", int = "", wts = "None",
-  check = "", ci_type, data_filter = "")
+logistic(
+  dataset,
+  rvar,
+  evar,
+  lev = "",
+  int = "",
+  wts = "None",
+  check = "",
+  form,
+  ci_type,
+  data_filter = "",
+  envir = parent.frame()
+)
 }
 \arguments{
 \item{dataset}{Dataset}
@@ -22,9 +33,13 @@ logistic(dataset, rvar, evar, lev = "", int = "", wts = "None",
 
 \item{check}{Use "standardize" to see standardized coefficient estimates. Use "stepwise-backward" (or "stepwise-forward", or "stepwise-both") to apply step-wise selection of variables in estimation. Add "robust" for robust estimation of standard errors (HC1)}
 
+\item{form}{Optional formula to use instead of rvar, evar, and int}
+
 \item{ci_type}{To use the profile-likelihood (rather than Wald) for confidence intervals use "profile". For datasets with more than 5,000 rows the Wald method will be used, unless "profile" is explicitly set}
 
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
+
+\item{envir}{Environment to extract data from}
 }
 \value{
 A list with all variables defined in logistic as an object of class logistic

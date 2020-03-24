@@ -4,14 +4,21 @@
 \alias{plot.logistic}
 \title{Plot method for the logistic function}
 \usage{
-\method{plot}{logistic}(x, plots = "", conf_lev = 0.95,
-  intercept = FALSE, nrobs = -1, shiny = FALSE, custom = FALSE,
-  ...)
+\method{plot}{logistic}(
+  x,
+  plots = "coef",
+  conf_lev = 0.95,
+  intercept = FALSE,
+  nrobs = -1,
+  shiny = FALSE,
+  custom = FALSE,
+  ...
+)
 }
 \arguments{
 \item{x}{Return value from \code{\link{logistic}}}
 
-\item{plots}{Plots to produce for the specified GLM model. Use "" to avoid showing any plots (default). "dist" shows histograms (or frequency bar plots) of all variables in the model. "scatter" shows scatter plots (or box plots for factors) for the response variable with each explanatory variable. "coef" provides a coefficient plot}
+\item{plots}{Plots to produce for the specified GLM model. Use "" to avoid showing any plots (default). "dist" shows histograms (or frequency bar plots) of all variables in the model. "scatter" shows scatter plots (or box plots for factors) for the response variable with each explanatory variable. "coef" provides a coefficient plot and "influence" shows (potentially) influential observations}
 
 \item{conf_lev}{Confidence level to use for coefficient and odds confidence intervals (.95 is the default)}
 

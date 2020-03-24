@@ -7,6 +7,7 @@
 #' @param evar Explanatory variables in the model
 #' @param laplace Positive double controlling Laplace smoothing. The default (0) disables Laplace smoothing.
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param envir Environment to extract data from
 #'
 #' @return A list with all variables defined in nb as an object of class nb
 #'
@@ -21,17 +22,23 @@
 #' @importFrom e1071 naiveBayes
 #'
 #' @export
-nb <- function(dataset, rvar, evar, laplace = 0, data_filter = "") {
+nb <- function(
+  dataset, rvar, evar, laplace = 0, 
+  data_filter = "", envir = parent.frame()
+) {
+
   if (rvar %in% evar) {
     return("Response variable contained in the set of explanatory variables.\nPlease update model specification." %>%
       add_class("nb"))
   }
 
   df_name <- if (!is_string(dataset)) deparse(substitute(dataset)) else dataset
-  dataset <- get_data(dataset, c(rvar, evar), filt = data_filter)
+  dataset <- get_data(dataset, c(rvar, evar), filt = data_filter, envir = envir)
 
-  if (any(summarise_all(dataset, does_vary) == FALSE)) {
-    return("One or more selected variables show no variation. Please select other variables." %>% add_class("nb"))
+  not_vary <- colnames(dataset)[summarise_all(dataset, does_vary) == FALSE]
+  if (length(not_vary) > 0) {
+    return(paste0("The following variable(s) show no variation. Please select other variables.\n\n** ", paste0(not_vary, collapse = ", "), " **") %>%
+      add_class("nb"))
   }
 
   vars <- evar
@@ -57,7 +64,7 @@ nb <- function(dataset, rvar, evar, laplace = 0, data_filter = "") {
 
   ## nb model object does not include the data by default
   model$model <- dataset
-  rm(dataset) ## dataset not needed elsewhere
+  rm(dataset, envir) ## dataset not needed elsewhere
 
   as.list(environment()) %>% add_class(c("nb", "model"))
 }
@@ -132,16 +139,17 @@ plot.nb <- function(x, plots = "correlations", lev = "All levels", nrobs = 1000,
   if (is.character(x)) return(x)
   if (is_empty(plots[1])) return(invisible())
 
-  evar <- mutate_all(select(x$model$model, -1), as_numeric)
   rvar <- x$model$model[[1]]
 
   if ("correlations" %in% plots) {
     if (lev == "All levels") {
-      return(sshhr(radiant.basics:::plot.correlation(evar, nrobs = nrobs)))
+      return(sshhr(radiant.basics:::plot.correlation(x$model$model, nrobs = nrobs)))
     } else {
-      return(sshhr(radiant.basics:::plot.correlation(filter(evar, rvar == lev), nrobs = nrobs)))
+      return(sshhr(radiant.basics:::plot.correlation(filter(select(x$model$model, -1), rvar == lev), nrobs = nrobs)))
     }
   }
+
+  evar <- mutate_all(select(x$model$model, -1), as_numeric)
 
   if (lev != "All levels") {
     rvar <- factor(
@@ -196,6 +204,7 @@ plot.nb <- function(x, plots = "correlations", lev = "All levels", nrobs = 1000,
 #' @param pred_cmd Generate predictions using a command. For example, `pclass = levels(pclass)` would produce predictions for the different levels of factor `pclass`. To add another variable, create a vector of prediction strings, (e.g., c('pclass = levels(pclass)', 'age = seq(0,100,20)')
 #' @param pred_names Names for the predictions to be stored. If one name is provided, only the first column of predictions is stored. If empty, the level in the response variable of the nb model will be used
 #' @param dec Number of decimals to show
+#' @param envir Environment to extract data from
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
@@ -214,7 +223,8 @@ plot.nb <- function(x, plots = "correlations", lev = "All levels", nrobs = 1000,
 #' @export
 predict.nb <- function(
   object, pred_data = NULL, pred_cmd = "",
-  pred_names = "", dec = 3, ...
+  pred_names = "", dec = 3, envir = parent.frame(), 
+  ...
 ) {
 
   if (is.character(object)) return(object)
@@ -253,7 +263,7 @@ predict.nb <- function(
     pred_val
   }
 
-  predict_model(object, pfun, "nb.predict", pred_data, pred_cmd, dec = dec) %>%
+  predict_model(object, pfun, "nb.predict", pred_data, pred_cmd, dec = dec, envir = envir) %>%
     set_attr("radiant_pred_data", df_name)
 }
 
@@ -332,7 +342,7 @@ plot.nb.predict <- function(
 #'
 #' @details See \url{https://radiant-rstats.github.io/docs/model/nb.html} for an example in Radiant
 #'
-#' @param dataset Dataset to add predictions two
+#' @param dataset Dataset to add predictions to
 #' @param object Return value from model function
 #' @param name Variable name(s) assigned to predicted values. If empty, the levels of the response variable will be used
 #' @param ... Additional arguments
@@ -343,7 +353,7 @@ plot.nb.predict <- function(
 #' titanic <- store(titanic, pred, name = c("Yes", "No"))
 #'
 #' @export
-store.nb.predict <- function(dataset, object, name = "pred_nb", ...) {
+store.nb.predict <- function(dataset, object, name = NULL, ...) {
 
   ## extract the names of the variables predicted
   pvars <- base::setdiff(attr(object, "radiant_vars"), attr(object, "radiant_evar"))

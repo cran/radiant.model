@@ -2,11 +2,23 @@
 % Please edit documentation in R/nn.R
 \name{nn}
 \alias{nn}
-\title{Neural Networks}
+\title{Neural Networks using nnet}
 \usage{
-nn(dataset, rvar, evar, type = "classification", lev = "", size = 1,
-  decay = 0.5, wts = "None", seed = NA, check = "standardize",
-  data_filter = "")
+nn(
+  dataset,
+  rvar,
+  evar,
+  type = "classification",
+  lev = "",
+  size = 1,
+  decay = 0.5,
+  wts = "None",
+  seed = NA,
+  check = "standardize",
+  form,
+  data_filter = "",
+  envir = parent.frame()
+)
 }
 \arguments{
 \item{dataset}{Dataset}
@@ -29,13 +41,17 @@ nn(dataset, rvar, evar, type = "classification", lev = "", size = 1,
 
 \item{check}{Optional estimation parameters ("standardize" is the default)}
 
+\item{form}{Optional formula to use instead of rvar and evar}
+
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
+
+\item{envir}{Environment to extract data from}
 }
 \value{
 A list with all variables defined in nn as an object of class nn
 }
 \description{
-Neural Networks
+Neural Networks using nnet
 }
 \details{
 See \url{https://radiant-rstats.github.io/docs/model/nn.html} for an example in Radiant

@@ -4,10 +4,10 @@
 \alias{store.nb.predict}
 \title{Store predicted values generated in the nb function}
 \usage{
-\method{store}{nb.predict}(dataset, object, name = "pred_nb", ...)
+\method{store}{nb.predict}(dataset, object, name = NULL, ...)
 }
 \arguments{
-\item{dataset}{Dataset to add predictions two}
+\item{dataset}{Dataset to add predictions to}
 
 \item{object}{Return value from model function}
 

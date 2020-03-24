@@ -7,7 +7,9 @@
 #' @param evar Explanatory variables in the regression
 #' @param int Interaction terms to include in the model
 #' @param check Use "standardize" to see standardized coefficient estimates. Use "stepwise-backward" (or "stepwise-forward", or "stepwise-both") to apply step-wise selection of variables in estimation. Add "robust" for robust estimation of standard errors (HC1)
+#' @param form Optional formula to use instead of rvar, evar, and int
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param envir Environment to extract data from
 #'
 #' @return A list of all variables used in the regress function as an object of class regress
 #'
@@ -22,7 +24,17 @@
 #' @importFrom sandwich vcovHC
 #'
 #' @export
-regress <- function(dataset, rvar, evar, int = "", check = "", data_filter = "") {
+regress <- function(
+  dataset, rvar, evar, int = "", check = "",
+  form, data_filter = "", envir = parent.frame()
+) {
+
+  if (!missing(form)) {
+    form <- as.formula(format(form))
+    vars <- all.vars(form)
+    rvar <- vars[1]
+    evar <- vars[-1]
+  }
 
   if (rvar %in% evar) {
     return("Response variable contained in the set of explanatory variables.\nPlease update model specification." %>%
@@ -30,11 +42,21 @@ regress <- function(dataset, rvar, evar, int = "", check = "", data_filter = "")
   }
 
   df_name <- if (is_string(dataset)) dataset else deparse(substitute(dataset))
-  dataset <- get_data(dataset, c(rvar, evar), filt = data_filter)
+  if (any(evar == ".")) {
+    dataset <- get_data(dataset, "", filt = data_filter, envir = envir)
+    evar <- setdiff(colnames(dataset), rvar)
+  } else {
+    dataset <- get_data(dataset, c(rvar, evar), filt = data_filter, envir = envir)
+  }
 
-  if (any(summarise_all(dataset, does_vary) == FALSE)) {
-    return("One or more selected variables show no variation. Please select other variables." %>%
+  not_vary <- colnames(dataset)[summarise_all(dataset, does_vary) == FALSE]
+  if (length(not_vary) > 0) {
+    return(paste0("The following variable(s) show no variation. Please select other variables.\n\n** ", paste0(not_vary, collapse = ", "), " **") %>%
       add_class("regress"))
+  }
+
+  if (!missing(form)) {
+    int <- setdiff(attr(terms.formula(form), "term.labels"), evar)
   }
 
   vars <- ""
@@ -54,28 +76,24 @@ regress <- function(dataset, rvar, evar, int = "", check = "", data_filter = "")
     }
   }
 
-  form_upper <- paste(rvar, "~", paste(vars, collapse = " + ")) %>% as.formula()
+  if (missing(form)) {
+    form_upper <- paste(rvar, "~", paste(vars, collapse = " + ")) %>% as.formula()
+  } else {
+    form_upper <- form
+    rm(form)
+  }
   form_lower <- paste(rvar, "~ 1") %>% as.formula()
   if ("stepwise" %in% check) check <- sub("stepwise", "stepwise-backward", check)
   if ("stepwise-backward" %in% check) {
     ## use k = 2 for AIC, use k = log(nrow(dataset)) for BIC
     model <- lm(form_upper, data = dataset) %>%
       step(k = 2, scope = list(lower = form_lower), direction = "backward")
-
-    ## adding full data even if all variables are not significant
-    model$model <- dataset
   } else if ("stepwise-forward" %in% check) {
     model <- lm(form_lower, data = dataset) %>%
       step(k = 2, scope = list(upper = form_upper), direction = "forward")
-
-    ## adding full data even if all variables are not significant
-    model$model <- dataset
   } else if ("stepwise-both" %in% check) {
     model <- lm(form_lower, data = dataset) %>%
       step(k = 2, scope = list(lower = form_lower, upper = form_upper), direction = "both")
-
-    ## adding full data even if all variables are not significant
-    model$model <- dataset
   } else {
     model <- lm(form_upper, data = dataset)
   }
@@ -93,7 +111,7 @@ regress <- function(dataset, rvar, evar, int = "", check = "", data_filter = "")
   if ("robust" %in% check) {
     vcov <- sandwich::vcovHC(model, type = "HC1")
     coeff$std.error <- sqrt(diag(vcov))
-    coeff$t.value <- coef(model) / coeff$std.error
+    coeff$t.value <- coeff$coefficient / coeff$std.error
     coeff$p.value <- 2 * pt(abs(coeff$t.value), df = nrow(dataset) - nrow(coeff), lower.tail = FALSE)
   }
 
@@ -109,7 +127,7 @@ regress <- function(dataset, rvar, evar, int = "", check = "", data_filter = "")
   }
 
   ## remove elements no longer needed
-  rm(dataset, hasLevs, form_lower, form_upper, isNum)
+  rm(dataset, hasLevs, form_lower, form_upper, isNum, envir)
 
   as.list(environment()) %>% add_class(c("regress", "model"))
 }
@@ -191,7 +209,7 @@ summary.regress <- function(
     p.small <- coeff$p.value < .001
     coeff[, 2:5] %<>% format_df(dec)
     coeff$p.value[p.small] <- "< .001"
-    print(rename(coeff, `  ` = "label", ` ` = "sig_star"), row.names = FALSE)
+    print(dplyr::rename(coeff, `  ` = "label", ` ` = "sig_star"), row.names = FALSE)
   }
 
   if (nrow(object$model$model) <= (length(object$evar) + 1)) {
@@ -201,13 +219,14 @@ summary.regress <- function(
   ## adjusting df for included intercept term
   df_int <- if (attr(object$model$terms, "intercept")) 1L else 0L
 
+  reg_fit <- glance(object$model) %>% round(dec)
+  cat("\nSignif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n\n")
+  cat("R-squared:", paste0(reg_fit$r.squared, ", "), "Adjusted R-squared:", reg_fit$adj.r.squared, "\n")
+
   ## if stepwise returns only an intercept
   if (nrow(coeff) == 1) return("\nModel contains only an intercept. No additional output shown")
 
-  reg_fit <- glance(object$model) %>% round(dec)
   if (reg_fit["p.value"] < .001) reg_fit["p.value"] <- "< .001"
-  cat("\nSignif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n\n")
-  cat("R-squared:", paste0(reg_fit$r.squared, ", "), "Adjusted R-squared:", reg_fit$adj.r.squared, "\n")
   cat("F-statistic:", reg_fit$statistic, paste0("df(", reg_fit$df - df_int, ",", reg_fit$df.residual, "), p.value"), reg_fit$p.value)
   cat("\nNr obs:", format_nr(reg_fit$df + reg_fit$df.residual, dec = 0), "\n\n")
 
@@ -229,7 +248,6 @@ summary.regress <- function(
     df_reg <- sum(atab$Df[-nr_rows])
     df_err <- sum(atab$Df[nr_rows])
     df_tot <- df_reg + df_err
-
     ss_reg <- sum(atab$`Sum Sq`[-nr_rows])
     ss_err <- sum(atab$`Sum Sq`[nr_rows])
     ss_tot <- ss_reg + ss_err
@@ -361,7 +379,7 @@ summary.regress <- function(
 #' @details See \url{https://radiant-rstats.github.io/docs/model/regress.html} for an example in Radiant
 #'
 #' @param x Return value from \code{\link{regress}}
-#' @param plots Regression plots to produce for the specified regression model. Enter "" to avoid showing any plots (default). "dist" to shows histograms (or frequency bar plots) of all variables in the model. "correlations" for a visual representation of the correlation matrix selected variables. "scatter" to show scatter plots (or box plots for factors) for the response variable with each explanatory variable. "dashboard" for a series of six plots that can be used to evaluate model fit visually. "resid_pred" to plot the explanatory variables against the model residuals. "coef" for a coefficient plot with adjustable confidence intervals. "leverage" to show leverage plots for each explanatory variable
+#' @param plots Regression plots to produce for the specified regression model. Enter "" to avoid showing any plots (default). "dist" to shows histograms (or frequency bar plots) of all variables in the model. "correlations" for a visual representation of the correlation matrix selected variables. "scatter" to show scatter plots (or box plots for factors) for the response variable with each explanatory variable. "dashboard" for a series of six plots that can be used to evaluate model fit visually. "resid_pred" to plot the explanatory variables against the model residuals. "coef" for a coefficient plot with adjustable confidence intervals and "influence" to show (potentially) influential observations
 #' @param lines Optional lines to include in the select plot. "line" to include a line through a scatter plot. "loess" to include a polynomial regression fit line. To include both use c("line", "loess")
 #' @param conf_lev Confidence level used to estimate confidence intervals (.95 is the default)
 #' @param intercept Include the intercept in the coefficient plot (TRUE, FALSE). FALSE is the default
@@ -384,6 +402,8 @@ summary.regress <- function(
 #' @seealso \code{\link{predict.regress}} to generate predictions
 #'
 #' @importFrom dplyr sample_n
+#' @importFrom ggrepel geom_text_repel
+#' @importFrom broom augment
 #'
 #' @export
 plot.regress <- function(
@@ -397,18 +417,18 @@ plot.regress <- function(
 
   ## checking x size
   if (inherits(x$model, "lm")) {
-    model <- ggplot2::fortify(x$model)
-  } else if (inherits(x, "nn")) {
+    model <- broom::augment(x$model)
+  } else if (inherits(x, "nn") || inherits(x, "rforest") || inherits(x, "gbt") || inherits(x, "crtree")) {
     model <- x$model$model
     model$pred <- predict(x, x$model$model)$Prediction
     model <- lm(formula(paste0(x$rvar, " ~ ", "pred")), data = model) %>%
-      ggplot2::fortify()
+      broom::augment()
   } else {
     return(x)
   }
 
   rvar <- x$rvar
-  evar <- x$evar
+  evar <- intersect(x$evar, colnames(model))
   vars <- c(rvar, evar)
 
   flines <- sub("loess", "", lines) %>% sub("line", "", .)
@@ -435,7 +455,7 @@ plot.regress <- function(
     plot_list[["dash3"]] <- ggplot(model, aes(y = .resid, x = seq_along(.resid))) + geom_line() +
       labs(title = "Residuals vs Row order", x = "Row order", y = "Residuals")
 
-    plot_list[["dash4"]] <- ggplot(model, aes_string(sample = ".stdresid")) + stat_qq(alpha = 0.5) +
+    plot_list[["dash4"]] <- ggplot(model, aes_string(sample = ".std.resid")) + stat_qq(alpha = 0.5) +
       labs(title = "Normal Q-Q", x = "Theoretical quantiles", y = "Standardized residuals")
 
     plot_list[["dash5"]] <-
@@ -443,7 +463,7 @@ plot.regress <- function(
       labs(title = "Histogram of residuals", x = "Residuals")
 
     plot_list[["dash6"]] <- ggplot(model, aes_string(x = ".resid")) + geom_density(alpha = 0.3, fill = "green") +
-      stat_function(fun = dnorm, args = list(mean = mean(model[, ".resid"]), sd = sd(model[, ".resid"])), color = "blue") +
+      stat_function(fun = dnorm, args = list(mean = mean(model$.resid), sd = sd(model$.resid)), color = "blue") +
       labs(title = "Residuals vs Normal density", x = "Residuals", y = "") +
       theme(axis.text.y = element_blank())
 
@@ -510,7 +530,6 @@ plot.regress <- function(
       na.omit() %>%
       set_colnames(c("Low", "High")) %>%
       cbind(select(x$coeff, 2), .) %>%
-      # set_rownames(x$coeff$`  `) %>%
       set_rownames(x$coeff$label) %>%
       {if (!intercept) .[-1, ] else .} %>%
       mutate(variable = rownames(.)) %>%
@@ -522,7 +541,6 @@ plot.regress <- function(
       geom_hline(yintercept = 0, linetype = "dotdash", color = "blue") +
       labs(y = yl, x = "") +
       scale_x_discrete(limits = {
-        # if (intercept) rev(x$coeff$`  `) else rev(x$coeff$`  `[-1])
         if (intercept) rev(x$coeff$label) else rev(x$coeff$label[-1])
       }) +
       coord_flip() +
@@ -530,28 +548,46 @@ plot.regress <- function(
   }
 
   if ("correlations" %in% plots) {
-    return(radiant.basics:::plot.correlation(x$model$model, nrobs = nrobs))
+    if (length(evar) == 0) {
+      message("Model contains only an intercept. Correlation plot cannot be generated")
+    } else {
+      return(radiant.basics:::plot.correlation(x$model$model, nrobs = nrobs))
+    }
   }
 
-  # if ("leverage" %in% plots) {
-  #   ## no plots if aliased coefficients present
-  #   if (anyNA(x$model$coeff))
-  #     return("The set of explanatory variables exhibit perfect multicollinearity.\nOne or more variables were dropped from the estimation.\nLeverage plot will not be shown")
-  #   return(car::leveragePlots(x$model, main = "", ask=FALSE, id.n = 1,
-  #          layout = c(ceiling(length(evar)/2),2)))
-  # }
+  if ("influence" %in% plots) {
+    nrCol <- 1
 
-  if (length("plot_list") > 0) {
+    ## based on http://www.sthda.com/english/articles/36-classification-methods-essentials/148-logistic-regression-assumptions-and-diagnostics-in-r/
+    mod <- model %>%
+      select(.std.resid, .cooksd) %>%
+      mutate(index = 1:n(), .cooksd.max = .cooksd) %>%
+      arrange(desc(.cooksd)) %>%
+      mutate(index.max = 1:n(), .cooksd.max = ifelse(index.max < 4, .cooksd, NA)) %>%
+      mutate(index.max = ifelse(index.max < 4, index, NA)) %>%
+      arrange(index)
+
+    mod <- mutate(mod, .std.resid = ifelse(abs(.std.resid) < 1 & is.na(index.max), NA, .std.resid))
+    lim <- max(abs(mod$.std.resid), na.rm = TRUE) %>% {c(min(-4, -.), max(4, .))}
+    plot_list[["influence"]] <- ggplot(mod, aes(index, .std.resid)) +
+      geom_point(aes(size = .cooksd), alpha = 0.5) +
+      ggrepel::geom_text_repel(aes(label = index.max)) +
+      geom_hline(yintercept = c(-1, -3, 1, 3), linetype = "longdash", size = 0.25) +
+      scale_y_continuous(breaks = -4:4, limits = lim) +
+      labs(
+        title = "Influential observations",
+        x = "Observation index",
+        y = "Standardized residuals",
+        size = "cooksd"
+      )
+  }
+
+  if (length(plot_list) > 0) {
     if (custom) {
-      if (length(plot_list) == 1) {
-        return(plot_list[[1]])
-      } else {
-        return(plot_list)
-      }
-    }
-
-    sshhr(gridExtra::grid.arrange(grobs = plot_list, ncol = nrCol)) %>% {
-      if (shiny) . else print(.)
+      if (length(plot_list) == 1) plot_list[[1]] else plot_list
+    } else {
+      patchwork::wrap_plots(plot_list, ncol = nrCol) %>%
+        {if (shiny) . else print(.)}
     }
   }
 }
@@ -567,6 +603,7 @@ plot.regress <- function(
 #' @param se Logical that indicates if prediction standard errors should be calculated (default = FALSE)
 #' @param interval Type of interval calculation ("confidence" or "prediction"). Set to "none" if se is FALSE
 #' @param dec Number of decimals to show
+#' @param envir Environment to extract data from
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
@@ -583,7 +620,8 @@ plot.regress <- function(
 #' @export
 predict.regress <- function(
   object, pred_data = NULL, pred_cmd = "", conf_lev = 0.95,
-  se = TRUE, interval = "confidence", dec = 3, ...
+  se = TRUE, interval = "confidence", dec = 3,
+  envir = parent.frame(), ...
 ) {
 
   if (is.character(object)) return(object)
@@ -631,7 +669,7 @@ predict.regress <- function(
     pred_val
   }
 
-  predict_model(object, pfun, "regress.predict", pred_data, pred_cmd, conf_lev, se, dec) %>%
+  predict_model(object, pfun, "regress.predict", pred_data, pred_cmd, conf_lev, se, dec, envir = envir) %>%
     set_attr("radiant_interval", interval) %>%
     set_attr("radiant_pred_data", df_name)
 }
@@ -648,6 +686,7 @@ predict.regress <- function(
 #' @param conf_lev Confidence level used to estimate confidence intervals (.95 is the default)
 #' @param se Logical that indicates if prediction standard errors should be calculated (default = FALSE)
 #' @param dec Number of decimals to show
+#' @param envir Environment to extract data from
 #' @param ... further arguments passed to or from other methods
 #'
 #' @importFrom radiant.data set_attr
@@ -655,7 +694,8 @@ predict.regress <- function(
 #' @export
 predict_model <- function(
   object, pfun, mclass, pred_data = NULL, pred_cmd = "",
-  conf_lev = 0.95, se = FALSE, dec = 3, ...
+  conf_lev = 0.95, se = FALSE, dec = 3, envir = parent.frame(),
+  ...
 ) {
 
   if (is.character(object)) return(object)
@@ -692,7 +732,7 @@ predict_model <- function(
       return(paste0("The command entered did not generate valid data for prediction. The\nerror message was:\n\n", attr(pred, "condition")$message, "\n\nPlease try again. Examples are shown in the help file."))
     }
 
-    # adding information to the prediction data.frame
+    vars <- vars[vars %in% colnames(dat)]
     dat <- select_at(dat, .vars = vars)
 
     if (!is.null(object$model$term)) {
@@ -741,8 +781,10 @@ predict_model <- function(
     if ((sum(isNum) + sum(isFct) + sum(isLog) + sum(isChar) + sum(isOther)) < length(vars)) {
       return("The model includes data-types that cannot be used for\nprediction at this point\n")
     } else {
-      if (sum(names(pred) %in% names(plug_data)) < length(names(pred))) {
-        return("The command entered contains variable names that are not in the model.\nPlease try again.\n\n")
+      pred_names <- names(pred)
+      if (sum(pred_names %in% names(plug_data)) < length(pred_names)) {
+        vars_in <- pred_names %in% names(plug_data)
+        return(paste0("The command entered contains variable names that are not in the model\nVariables in the model: ", paste0(vars, collapse = ", "), "\nVariables not available in prediction data: ", paste0(pred_names[!vars_in], collapse = ", ")))
       } else {
         plug_data[names(pred)] <- list(NULL)
         pred <- cbind(select(plug_data, -1), pred)
@@ -750,7 +792,7 @@ predict_model <- function(
     }
   } else {
     ## generate predictions for all observations in the dataset
-    pred <- get_data(pred_data, filt = "", na.rm = FALSE)
+    pred <- get_data(pred_data, filt = "", na.rm = FALSE, envir = envir)
     pred_names <- colnames(pred)
     vars_in <- vars %in% pred_names
     ## keep all variables in the prediction data for the "customized" prediction
@@ -815,10 +857,10 @@ predict_model <- function(
       scale <- FALSE
     }
     pred_val <- scale_df(pred, center = TRUE, scale = scale, calc = FALSE) %>%
-      pfun(object$model, ., se = se, conf_lev = conf_lev)
+      pfun(object$model, ., se = se, conf_lev = conf_lev, ...)
   } else {
     ## generate predictions using the supplied function (pfun)
-    pred_val <- pfun(object$model, pred, se = se, conf_lev = conf_lev)
+    pred_val <- pfun(object$model, pred, se = se, conf_lev = conf_lev, ...)
   }
 
   if (!inherits(pred_val, "try-error")) {
@@ -847,6 +889,7 @@ predict_model <- function(
       vars <- c(object$evar, colnames(pred_val))
     }
 
+    extra_args <- list(...)
     pred <- set_attr(pred, "radiant_df_name", object$df_name) %>%
       set_attr("radiant_data_filter", object$data_filter) %>%
       set_attr("radiant_rvar", object$rvar) %>%
@@ -856,11 +899,12 @@ predict_model <- function(
       set_attr("radiant_vars", vars) %>%
       set_attr("radiant_dec", dec) %>%
       set_attr("radiant_pred_type", pred_type) %>%
-      set_attr("radiant_pred_cmd", pred_cmd)
+      set_attr("radiant_pred_cmd", pred_cmd) %>%
+      set_attr("radiant_extra_args", extra_args)
 
     return(add_class(pred, c(mclass, "model.predict")))
   } else {
-    return(paste0("There was an error when trying to generate predictions. The\nerror message was:\n\n", attr(pred_val, "condition")$message, "\n\nPlease try again. Examples are shown in the help file."))
+    return(paste0("There was an error trying to generate predictions. The error\nmessage was:\n\n", attr(pred_val, "condition")$message, "\n\nPlease try again. Examples are shown in the help file."))
   }
 }
 
@@ -911,16 +955,24 @@ print_predict_model <- function(x, ..., n = 10, header = "") {
     cat("Prediction dataset   :", pred_data, "\n")
   }
 
+  extra_args <- attr(x, "radiant_extra_args")
+  if (!is_empty(extra_args)) {
+    extra_args <- deparse(extra_args) %>%
+      sub("list\\(", "", .) %>%
+      sub("\\)$", "", .)
+    cat("Additional arguments :", extra_args, "\n")
+  }
+
   if (n == -1) {
     cat("\n")
-    format_df(x[, vars, drop = FALSE], attr(x, "radiant_dec")) %>%
+    format_df(x, attr(x, "radiant_dec")) %>%
       print(row.names = FALSE)
   } else {
     if (nrow(x) > n) {
       cat("Rows shown           :", n, "of", format_nr(nrow(x), dec = 0), "\n")
     }
     cat("\n")
-    head(x[, vars, drop = FALSE], n) %>%
+    head(x, n) %>%
       format_df(attr(x, "radiant_dec")) %>%
       print(row.names = FALSE)
   }
@@ -933,8 +985,9 @@ print_predict_model <- function(x, ..., n = 10, header = "") {
 #' @param n Number of lines of prediction results to print. Use -1 to print all lines
 #'
 #' @export
-print.regress.predict <- function(x, ..., n = 10)
+print.regress.predict <- function(x, ..., n = 10) {
   print_predict_model(x, ..., n = n, header = "Linear regression (OLS)")
+}
 
 #' Plot method for model.predict functions
 #'
@@ -974,6 +1027,7 @@ plot.model.predict <- function(
   cn <- colnames(x)
   pvars <- "Prediction"
   cnpred <- which(cn == pvars)
+  if (length(cnpred) == 0) return(invisible())
   if (length(cn) > cnpred) {
     pvars <- c(pvars, "ymin", "ymax")
     cn[cnpred + 1] <- pvars[2]
@@ -1095,9 +1149,19 @@ store.model.predict <- function(dataset, object, name = "prediction", ...) {
 #' @export
 store.model <- function(dataset, object, name = "residuals", ...) {
   indr <- indexr(dataset, vars = c(object$rvar, object$evar), filt = object$data_filter)
-  res <- rep(NA, indr$nr)
-  res[indr$ind] <- object$model$residuals
-  dataset[[name]] <- res
+  name <- unlist(strsplit(name, "(\\s*,\\s*|\\s*;\\s*|\\s+)")) %>%
+      gsub("\\s", "", .)
+  nr_res <- length(name)
+  res <- matrix(rep(NA, indr$nr * nr_res), ncol = nr_res) %>%
+    set_colnames(name) %>%
+    as.data.frame(stringsAsFactors = FALSE)
+  residuals <- object$model$residuals
+  if (is.vector(residuals)) {
+    res[indr$ind, name] <- residuals
+  } else {
+    res[indr$ind, name] <- residuals[, 1:nr_res]
+  }
+  dataset[, name] <- res
   dataset
 }
 

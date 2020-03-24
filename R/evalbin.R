@@ -11,6 +11,7 @@
 #' @param margin Margin on each customer purchase
 #' @param train Use data from training ("Training"), test ("Test"), both ("Both"), or all data ("All") to evaluate model evalbin
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param envir Environment to extract data from
 #'
 #' @return A list of results
 #'
@@ -26,7 +27,8 @@
 evalbin <- function(
   dataset, pred, rvar, lev = "",
   qnt = 10, cost = 1, margin = 2,
-  train = "All", data_filter = ""
+  train = "All", data_filter = "",
+  envir = parent.frame()
 ) {
 
   ## in case no inputs were provided
@@ -43,14 +45,14 @@ evalbin <- function(
   dat_list <- list()
   vars <- c(pred, rvar)
   if (train == "Both") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
+    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
   } else if (train == "Training") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
   } else if (train == "Test" | train == "Validation") {
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
   } else {
-    dat_list[["All"]] <- get_data(dataset, vars, filt = "")
+    dat_list[["All"]] <- get_data(dataset, vars, filt = "", envir = envir)
   }
 
   qnt_name <- "bins"
@@ -99,7 +101,6 @@ evalbin <- function(
       lg_list[[pname]] <-
         dataset %>%
         select_at(.vars = c(pred[j], rvar)) %>%
-        # mutate_(.dots = setNames(paste0(method,"(",pred[j],",", qnt,", rev = TRUE)"), pred[j])) %>%
         mutate(!! pred[j] := radiant.data::xtile(.data[[pred[j]]], n = qnt, rev = TRUE)) %>%
         setNames(c(qnt_name, rvar)) %>%
         group_by_at(.vars = qnt_name) %>%
@@ -289,12 +290,14 @@ plot.evalbin <- function(
     }
   }
 
-  if (custom) {
-    if (length(plot_list) == 1) return(plot_list[[1]]) else return(plot_list)
+  if (length(plot_list) > 0) {
+    if (custom) {
+      if (length(plot_list) == 1) plot_list[[1]] else plot_list
+    } else {
+      patchwork::wrap_plots(plot_list, ncol = 1) %>%
+        {if (shiny) . else print(.)}
+    }
   }
-
-  sshhr(gridExtra::grid.arrange(grobs = plot_list, ncol = 1)) %>%
-    {if (shiny) . else print(.)}
 }
 
 
@@ -310,6 +313,7 @@ plot.evalbin <- function(
 #' @param margin Margin on each customer purchase
 #' @param train Use data from training ("Training"), test ("Test"), both ("Both"), or all data ("All") to evaluate model evalbin
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param envir Environment to extract data from
 #' @param ... further arguments passed to or from other methods
 #'
 #' @return A list of results
@@ -327,7 +331,7 @@ plot.evalbin <- function(
 #' @export
 confusion <- function(
   dataset, pred, rvar, lev = "", cost = 1, margin = 2,
-  train = "All", data_filter = "", ...
+  train = "All", data_filter = "", envir = parent.frame(), ...
 ) {
 
   if (!train %in% c("", "All") && is_empty(data_filter)) {
@@ -347,14 +351,14 @@ confusion <- function(
   dat_list <- list()
   vars <- c(pred, rvar)
   if (train == "Both") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
+    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
   } else if (train == "Training") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter)
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
   } else if (train == "Test" | train == "Validation") {
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"))
+    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
   } else {
-    dat_list[["All"]] <- get_data(dataset, vars, filt = "")
+    dat_list[["All"]] <- get_data(dataset, vars, filt = "", envir = envir)
   }
 
   pdat <- list()
@@ -375,8 +379,11 @@ confusion <- function(
     ## transformation to TRUE/FALSE depending on the selected level (lev)
     dataset[[rvar]] <- dataset[[rvar]] == lev
 
-    auc_vec <- rep(NA, length(pred)) %>% set_names(pred)
-    for (p in pred) auc_vec[p] <- auc(dataset[[p]], dataset[[rvar]], TRUE)
+    auc_vec <- rig_vec <- rep(NA, length(pred)) %>% set_names(pred)
+    for (p in pred) {
+      auc_vec[p] <- auc(dataset[[p]], dataset[[rvar]], TRUE)
+      rig_vec[p] <- rig(dataset[[p]], dataset[[rvar]], TRUE)
+    }
 
     p_vec <- colMeans(dataset[, pred, drop = FALSE]) / mean(dataset[[rvar]])
 
@@ -422,6 +429,7 @@ confusion <- function(
       ret,
       data.frame(
         AUC = auc_vec,
+        RIG = rig_vec,
         p.ratio = p_vec,
         stringsAsFactors = FALSE
       )
@@ -448,7 +456,6 @@ confusion <- function(
   dataset <- group_by_at(dataset, .vars = "Type") %>%
     mutate(index = profit / max(profit)) %>%
     ungroup()
-  dataset <- mutate(dataset, profit = as.integer(round(profit, 0)))
 
   for (i in 1:nrow(dataset)) {
     tmp <- slice(dataset, i)
@@ -459,7 +466,7 @@ confusion <- function(
     dataset,
     .vars = c(
       "Type", "Predictor", "TP", "FP", "TN", "FN", "total",
-      "TPR", "TNR", "precision", "Fscore", "accuracy",
+      "TPR", "TNR", "precision", "Fscore", "RIG", "accuracy",
       "kappa", "profit", "index", "ROME", "contact", "AUC"
     )
   )
@@ -502,11 +509,13 @@ summary.confusion <- function(object, dec = 3, ...) {
   cat("Cost:Margin:", object$cost, ":", object$margin, "\n")
   cat("\n")
 
-  as.data.frame(object$dataset[, 1:11], stringsAsFactors = FALSE) %>%
+  dataset <- mutate(object$dataset, profit = as.integer(round(profit, 0)))
+  as.data.frame(dataset[, 1:11], stringsAsFactors = FALSE) %>%
     format_df(dec = dec, mark = ",") %>%
     print(row.names = FALSE)
   cat("\n")
-  as.data.frame(object$dataset[, c(1, 2, 12:18)], stringsAsFactors = FALSE) %>%
+
+  as.data.frame(dataset[, c(1, 2, 13:19)], stringsAsFactors = FALSE) %>%
     format_df(dec = dec, mark = ",") %>%
     print(row.names = FALSE)
 }
@@ -590,15 +599,49 @@ plot.confusion <- function(
 #'
 #' @export
 auc <- function(pred, rvar, lev) {
-  ## based on examples in colAUC at ...
-  ## https://cran.r-project.org/web/packages/caTools/caTools.pdf
-  lev <- check_lev(rvar, lev)
-  x1 <- pred[rvar == lev]
-  x2 <- pred[rvar != lev]
-  ## need as.numeric to avoid integer-overflows
-  denom <- as.numeric(length(x1)) * length(x2)
-  wt <- unname(wilcox.test(x1, x2, exact = FALSE)$statistic / denom)
+  ## adapted from https://stackoverflow.com/a/50202118/1974918
+  if (!is.logical(rvar)) {
+    lev <- check_lev(rvar, lev)
+    rvar <- rvar == lev
+  }
+  n1 <- sum(!rvar)
+  n2 <- sum(rvar)
+  U <- sum(rank(pred)[!rvar]) - n1 * (n1 + 1) / 2
+  wt <- U / n1 / n2
   ifelse(wt < .5, 1 - wt, wt)
+}
+
+#' Relative Information Gain (RIG)
+#'
+#' @details See \url{https://radiant-rstats.github.io/docs/model/evalbin.html} for an example in Radiant
+#'
+#' @param pred Prediction or predictor
+#' @param rvar Response variable
+#' @param lev The level in the response variable defined as success
+#' @param crv Correction value to avoid log(0)
+#' @param na.rm Logical that indicates if missing values should be removed (TRUE) or not (FALSE)
+#'
+#' @return RIG statistic
+#'
+#' @seealso \code{\link{evalbin}} to calculate results
+#' @seealso \code{\link{summary.evalbin}} to summarize results
+#' @seealso \code{\link{plot.evalbin}} to plot results
+#'
+#' @examples
+#' rig(runif(20000), dvd$buy, "yes")
+#' rig(ifelse(dvd$buy == "yes", 1, 0), dvd$buy, "yes")
+#'
+#' @export
+rig <- function(pred, rvar, lev, crv = 0.0000001, na.rm = TRUE) {
+  if (!is.logical(rvar)) {
+    lev <- check_lev(rvar, lev)
+    rvar <- rvar == lev
+  }
+  mo = mean(rvar, na.rm = na.rm)
+  pred = pmin(pmax(pred, crv, na.rm = na.rm), 1 - crv, na.rm = na.rm)
+  llpred = mean(-log(pred) * rvar - log(1 - pred) * (1 - rvar))
+  llbase = mean(-log(mo) * rvar - log(1 - mo)*(1 - rvar))
+  round((1 - llpred/llbase), 6)
 }
 
 #' Calculate Profit based on cost:margin ratio
@@ -619,11 +662,13 @@ auc <- function(pred, rvar, lev) {
 #'
 #' @export
 profit <- function(pred, rvar, lev, cost = 1, margin = 2) {
-  lev <- check_lev(rvar, lev)
-  rvar <- rvar == lev
+  if (!is.logical(rvar)) {
+    lev <- check_lev(rvar, lev)
+    rvar <- rvar == lev
+  }
   break_even = cost/margin
-  TP <- rvar & pred > break_even
-  FP <- !rvar & pred > break_even
+  TP <- rvar & (pred > break_even)
+  FP <- !rvar & (pred > break_even)
   margin * sum(TP) - cost * sum(TP, FP)
 }
 

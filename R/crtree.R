@@ -22,6 +22,7 @@
 #' @param margin Margin associated with a successful treatment (e.g., a purchase)
 #' @param check Optional estimation parameters (e.g., "standardize")
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param envir Environment to extract data from
 #'
 #' @return A list with all variables defined in crtree as an object of class tree
 #'
@@ -36,7 +37,14 @@
 #' @importFrom rpart rpart rpart.control prune.rpart
 #'
 #' @export
-crtree <- function(dataset, rvar, evar, type = "", lev = "", wts = "None", minsplit = 2, minbucket = round(minsplit / 3), cp = 0.001, pcp = NA, nodes = NA, K = 10, seed = 1234, split = "gini", prior = NA, adjprob = TRUE, cost = NA, margin = NA, check = "", data_filter = "") {
+crtree <- function(
+  dataset, rvar, evar, type = "", lev = "", wts = "None",
+  minsplit = 2, minbucket = round(minsplit / 3), cp = 0.001,
+  pcp = NA, nodes = NA, K = 10, seed = 1234, split = "gini",
+  prior = NA, adjprob = TRUE, cost = NA, margin = NA, check = "",
+  data_filter = "", envir = parent.frame()
+) {
+
   if (rvar %in% evar) {
     return("Response variable contained in the set of explanatory variables.\nPlease update model specification." %>%
       add_class("crtree"))
@@ -59,7 +67,7 @@ crtree <- function(dataset, rvar, evar, type = "", lev = "", wts = "None", minsp
   }
 
   df_name <- if (is_string(dataset)) dataset else deparse(substitute(dataset))
-  dataset <- get_data(dataset, vars, filt = data_filter)
+  dataset <- get_data(dataset, vars, filt = data_filter, envir = envir)
 
   if (!is_empty(wts)) {
     if (exists("wtsname")) {
@@ -74,8 +82,10 @@ crtree <- function(dataset, rvar, evar, type = "", lev = "", wts = "None", minsp
     }
   }
 
-  if (any(summarise_all(dataset, does_vary) == FALSE)) {
-    return("One or more selected variables show no variation. Please select other variables." %>% add_class("crtree"))
+  not_vary <- colnames(dataset)[summarise_all(dataset, does_vary) == FALSE]
+  if (length(not_vary) > 0) {
+    return(paste0("The following variable(s) show no variation. Please select other variables.\n\n** ", paste0(not_vary, collapse = ", "), " **") %>%
+      add_class("crtree"))
   }
 
   rv <- dataset[[rvar]]
@@ -221,7 +231,7 @@ crtree <- function(dataset, rvar, evar, type = "", lev = "", wts = "None", minsp
   ## passing on variable classes for plotting
   model$var_types <- sapply(dataset, class)
 
-  rm(dataset) ## dataset not needed elsewhere
+  rm(dataset, envir) ## dataset not needed elsewhere
 
   as.list(environment()) %>% add_class(c("crtree", "model"))
 }
@@ -313,6 +323,7 @@ summary.crtree <- function(object, prn = TRUE, splits = FALSE, cptab = FALSE, mo
 #' @param orient Plot orientation for tree: LR for vertical and TD for horizontal
 #' @param width Plot width in pixels for tree (default is "900px")
 #' @param labs Use factor labels in plot (TRUE) or revert to default letters used by tree (FALSE)
+#' @param nrobs Number of data points to show in dashboard scatter plots (-1 for all)
 #' @param dec Decimal places to round results to
 #' @param shiny Did the function call originate inside a shiny app
 #' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org} for options.
@@ -333,9 +344,11 @@ summary.crtree <- function(object, prn = TRUE, splits = FALSE, cptab = FALSE, mo
 #'
 #' @export
 plot.crtree <- function(
-                        x, plots = "tree", orient = "LR",
-                        width = "900px", labs = TRUE, dec = 2,
-                        shiny = FALSE, custom = FALSE, ...) {
+  x, plots = "tree", orient = "LR",
+  width = "900px", labs = TRUE, 
+  nrobs = Inf, dec = 2,
+  shiny = FALSE, custom = FALSE, ...
+) {
   if (is_empty(plots) || "tree" %in% plots) {
     if ("character" %in% class(x)) {
       return(paste0("graph LR\n A[\"", x, "\"]") %>% DiagrammeR::DiagrammeR(.))
@@ -473,6 +486,7 @@ plot.crtree <- function(
   } else {
     if ("character" %in% class(x)) return(x)
     plot_list <- list()
+    ncol <- 1
     if ("prune" %in% plots) {
       if (is.null(x$unpruned)) {
         df <- data.frame(x$model$cptable, stringsAsFactors = FALSE)
@@ -542,18 +556,26 @@ plot.crtree <- function(
         coord_flip() +
         theme(axis.text.y = element_text(hjust = 0))
     }
+    if ("pdp" %in% plots) {
+      ncol <- 2
+      for (pn in x$evar) {
+        plot_list[[pn]] <- pdp::partial(
+          x$model, pred.var = pn, plot = TRUE, rug = TRUE, 
+          prob = x$type == "classification", plot.engine = "ggplot2", smooth = TRUE
+        ) + labs(y = "")
+      }
+    }
+    if (x$type == "regression" && "dashboard" %in% plots) {
+      plot_list <- plot.regress(x, plots = "dashboard", lines = "line", nrobs = nrobs, custom = TRUE)
+      ncol <- 2
+    }
 
     if (length(plot_list) > 0) {
       if (custom) {
-        if (length(plot_list) == 1) {
-          return(plot_list[[1]])
-        } else {
-          return(plot_list)
-        }
-      }
-
-      sshhr(gridExtra::grid.arrange(grobs = plot_list, ncol = 1)) %>% {
-        if (shiny) . else print(.)
+        if (length(plot_list) == 1) plot_list[[1]] else plot_list
+      } else {
+        patchwork::wrap_plots(plot_list, ncol = ncol) %>%
+          {if (shiny) . else print(.)}
       }
     }
   }
@@ -569,6 +591,7 @@ plot.crtree <- function(
 #' @param conf_lev Confidence level used to estimate confidence intervals (.95 is the default)
 #' @param se Logical that indicates if prediction standard errors should be calculated (default = FALSE)
 #' @param dec Number of decimals to show
+#' @param envir Environment to extract data from
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
@@ -580,7 +603,11 @@ plot.crtree <- function(
 #' @seealso \code{\link{summary.crtree}} to summarize results
 #'
 #' @export
-predict.crtree <- function(object, pred_data = NULL, pred_cmd = "", conf_lev = 0.95, se = FALSE, dec = 3, ...) {
+predict.crtree <- function(
+  object, pred_data = NULL, pred_cmd = "",
+  conf_lev = 0.95, se = FALSE, dec = 3,
+  envir = parent.frame(), ...
+) {
   if (is.character(object)) return(object)
   if (is.data.frame(pred_data)) {
     df_name <- deparse(substitute(pred_data))
@@ -601,7 +628,7 @@ predict.crtree <- function(object, pred_data = NULL, pred_cmd = "", conf_lev = 0
     pred_val
   }
 
-  predict_model(object, pfun, "crtree.predict", pred_data, pred_cmd, conf_lev, se, dec) %>%
+  predict_model(object, pfun, "crtree.predict", pred_data, pred_cmd, conf_lev, se, dec, envir = envir) %>%
     set_attr("radiant_pred_data", df_name)
 }
 
@@ -649,7 +676,7 @@ print.crtree.predict <- function(x, ..., n = 10)
 #' result <- crtree(diamonds, "price", c("carat", "color", "clarity"), type = "regression", cp = 0.001)
 #' cv.crtree(result, cp = 0.001, pcp = seq(0, 0.01, length.out = 11), fun = MAE)
 #' }
-#' 
+#'
 #' @export
 cv.crtree <- function(object, K = 5, repeats = 1, cp, pcp = seq(0, 0.01, length.out = 11), seed = 1234, trace = TRUE, fun, ...) {
   if (inherits(object, "crtree")) object <- object$model

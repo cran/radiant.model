@@ -1,9 +1,11 @@
 # to avoid 'no visible binding for global variable' NOTE
 globalVariables(c(
-  ".", "n", ".resid", "null.deviance", "r_environment", ".fitted", "Predictor",
+  ".", "n", ".resid", "null.deviance", ".fitted", "Predictor",
   "total", "TN", "FN", "FP", "TP", "total", "profit", "precision", "ROME",
   "TPR", "nr_resp", "nr_obs", "cum_resp", "cum_resp_rate", "pred",
-  "cum_prop", "cum_gains", "obs", "everything", "r_data", "r_info", "fix_smart"
+  "cum_prop", "cum_gains", "obs", "everything", "r_data", "r_info", "fix_smart",
+  ".cooksd", ".std.resid", "index", "index.max", "logit", "predictor.value",
+  "label", "Feature"
 ))
 
 #' radiant.model
@@ -11,16 +13,16 @@ globalVariables(c(
 #' @name radiant.model
 #' @docType package
 #' @import radiant.data shiny ggplot2
-#' @importFrom gridExtra grid.arrange
 #' @importFrom dplyr mutate_at mutate_if mutate_all summarise_at summarise_all arrange arrange_at select select_at filter mutate mutate_ funs group_by group_by_ summarise summarise_ slice bind_cols bind_rows desc first last min_rank data_frame inner_join arrange_at group_by_at ungroup rename
 #' @importFrom rlang .data parse_exprs :=
 #' @importFrom magrittr %>% %<>% %T>% set_colnames set_rownames set_names extract2
 #' @importFrom tidyr spread gather
 #' @importFrom lubridate now
+#' @importFrom patchwork wrap_plots plot_annotation
 #' @importFrom DiagrammeR DiagrammeROutput renderDiagrammeR DiagrammeR mermaid
-#' @importFrom stats anova as.formula binomial coef confint cor deviance dnorm glm lm na.omit pnorm predict qnorm sd setNames step update weighted.mean wilcox.test rbinom rlnorm rnorm runif rpois terms quantile
 #' @importFrom utils head tail relist as.relistable combn capture.output write.table
-#' @importFrom stats residuals formula model.matrix pt qt confint.default family median
+#' @importFrom stats anova as.formula binomial coef confint cor deviance dnorm glm lm na.omit pnorm predict qnorm sd setNames step update weighted.mean wilcox.test rbinom rlnorm rnorm runif rpois terms quantile
+#' @importFrom stats residuals formula model.matrix pt qt confint.default family median logLik relevel terms.formula
 #' @importFrom import from
 NULL
 
@@ -67,6 +69,15 @@ NULL
 #' @name dvd
 #' @usage data(dvd)
 #' @format A data frame with 20,000 rows and 4 variables
+NULL
+
+#' Data on ketchup choices
+#' @details Choice behavior for a sample of 300 individuals in a panel of households in Springfield, Missouri (USA). Description provided in attr(ketchup,"description")
+#' @docType data
+#' @keywords datasets
+#' @name ketchup
+#' @usage data(ketchup)
+#' @format A data frame with 2,798 rows and 14 variables
 NULL
 
 #' Movie ratings
