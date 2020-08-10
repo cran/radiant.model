@@ -20,9 +20,8 @@ Summary method for the gbt function
 See \url{https://radiant-rstats.github.io/docs/model/gbt.html} for an example in Radiant
 }
 \examples{
-result <- gbt(titanic, "survived", "pclass", lev = "Yes")
+result <- gbt(titanic, "survived", c("pclass", "sex"), early_stopping_rounds = 0) \%>\% str()
 summary(result)
-
 }
 \seealso{
 \code{\link{gbt}} to generate results

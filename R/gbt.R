@@ -24,9 +24,13 @@
 #' @return A list with all variables defined in gbt as an object of class gbt
 #'
 #' @examples
+#' \dontrun{
 #' gbt(titanic, "survived", c("pclass", "sex"), lev = "Yes") %>% summary()
 #' gbt(titanic, "survived", c("pclass", "sex")) %>% str()
-#' gbt(titanic, "survived", c("pclass", "sex"), eval_metric = paste0("error@", 0.5/6)) %>% str()
+#' }
+#' gbt(titanic, "survived", c("pclass", "sex"), lev = "Yes", early_stopping_rounds = 0) %>% summary()
+#' gbt(titanic, "survived", c("pclass", "sex"), early_stopping_rounds = 0) %>% str()
+#' gbt(titanic, "survived", c("pclass", "sex"), eval_metric = paste0("error@", 0.5 / 6)) %>% str()
 #' gbt(diamonds, "price", c("carat", "clarity"), type = "regression") %>% summary()
 #' rig_wrap <- function(preds, dtrain) {
 #'   labels <- xgboost::getinfo(dtrain, "label")
@@ -34,7 +38,6 @@
 #'   list(metric = "rig", value = value)
 #' }
 #' gbt(titanic, "survived", c("pclass", "sex"), eval_metric = rig_wrap, maximize = TRUE) %>% str()
-#'
 #' @seealso \code{\link{summary.gbt}} to summarize results
 #' @seealso \code{\link{plot.gbt}} to plot results
 #' @seealso \code{\link{predict.gbt}} for prediction
@@ -147,7 +150,7 @@ gbt <- function(
   dtx <- onehot(dataset[, -1, drop = FALSE])[, -1, drop = FALSE]
   gbt_input <- c(gbt_input, list(data = dtx, label = dty), ...)
 
-  ## based on http://stackoverflow.com/a/14324316/1974918
+  ## based on https://stackoverflow.com/questions/14324096/setting-seed-locally-not-globally-in-r/14324316#14324316
   seed <- gsub("[^0-9]", "", seed)
   if (!is_empty(seed)) {
     if (exists(".Random.seed")) {
@@ -177,7 +180,7 @@ gbt <- function(
   gbt_input$data <- gbt_input$label <- NULL
 
   ## needed to work with prediction functions
-  check <- ""    
+  check <- ""
 
   as.list(environment()) %>% add_class(c("gbt", "model"))
 }
@@ -191,9 +194,8 @@ gbt <- function(
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
-#' result <- gbt(titanic, "survived", "pclass", lev = "Yes")
+#' result <- gbt(titanic, "survived", c("pclass", "sex"), early_stopping_rounds = 0) %>% str()
 #' summary(result)
-#'
 #' @seealso \code{\link{gbt}} to generate results
 #' @seealso \code{\link{plot.gbt}} to plot results
 #' @seealso \code{\link{predict.gbt}} for prediction
@@ -244,7 +246,7 @@ summary.gbt <- function(object, prn = TRUE, ...) {
     cat("Nr obs               :", format_nr(object$nr_obs, dec = 0), "\n")
   }
 
-  if (prn == TRUE) {
+  if (isTRUE(prn)) {
     cat("\nIteration history:\n\n")
     ih <- object$output[c(-2, -3)]
     if (length(ih) > 20) ih <- c(head(ih, 10), "...", tail(ih, 10))
@@ -260,11 +262,14 @@ summary.gbt <- function(object, prn = TRUE, ...) {
 #' @param shiny Did the function call originate inside a shiny app
 #' @param plots Plots to produce for the specified Gradient Boosted Tree model. Use "" to avoid showing any plots (default). Options are ...
 #' @param nrobs Number of data points to show in scatter plots (-1 for all)
-#' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org} for options.
+#' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned.
+#'   This option can be used to customize plots (e.g., add a title, change x and y labels, etc.).
+#'   See examples and \url{https://ggplot2.tidyverse.org} for options.
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
-#' result <- gbt(titanic, "survived", c("pclass", "sex"), lev = "Yes")
+#' result <- gbt(titanic, "survived", c("pclass", "sex"), early_stopping_rounds = 0)
+#' plot(result)
 #'
 #' @seealso \code{\link{gbt}} to generate results
 #' @seealso \code{\link{summary.gbt}} to summarize results
@@ -296,15 +301,17 @@ plot.gbt <- function(
         nr <- length(fn)
         for (i in seq_len(nr)) {
           seed <- x$seed
-          pdi <-  pdp::partial(
+          dtx_cat <- dtx
+          dtx_cat[, setdiff(fn, fn[i])] <- 0
+          pdi <- pdp::partial(
             x$model, pred.var = fn[i], plot = FALSE,
-            prob = x$type == "classification", train = dtx
+            prob = x$type == "classification", train = dtx_cat
           )
-          effects[i] <- pdi[pdi[[1]] == 1, 2]
+          effects[i] <- pdi[pdi[[1]] > 0, 2]
         }
         pgrid <- as.data.frame(matrix(0, ncol = nr))
         colnames(pgrid) <- fn
-        base <-  pdp::partial(
+        base <- pdp::partial(
           x$model, pred.var = fn,
           pred.grid = pgrid, plot = FALSE,
           prob = x$type == "classification", train = dtx
@@ -376,19 +383,18 @@ plot.gbt <- function(
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
-#' result <- gbt(titanic, "survived", c("pclass", "sex"), lev = "Yes")
+#' result <- gbt(titanic, "survived", c("pclass", "sex"), early_stopping_rounds = 0)
 #' predict(result, pred_cmd = "pclass = levels(pclass)")
 #' result <- gbt(diamonds, "price", "carat:color", type = "regression")
 #' predict(result, pred_cmd = "carat = 1:3")
 #' predict(result, pred_data = diamonds) %>% head()
-#'
 #' @seealso \code{\link{gbt}} to generate the result
 #' @seealso \code{\link{summary.gbt}} to summarize results
 #'
 #' @export
 predict.gbt <- function(
-  object, pred_data = NULL, pred_cmd = "",
-  dec = 3, envir = parent.frame(), ...
+                        object, pred_data = NULL, pred_cmd = "",
+                        dec = 3, envir = parent.frame(), ...
 ) {
 
   if (is.character(object)) return(object)
@@ -491,10 +497,10 @@ print.gbt.predict <- function(x, ..., n = 10)
 #'
 #' @export
 cv.gbt <- function(
-  object, K = 5, repeats = 1, params = list(),
-  nrounds = 500, early_stopping_rounds = 10, nthread = 12,
-  train = NULL, type = "classification",
-  trace = TRUE, seed = 1234, maximize = NULL, fun, ...
+                   object, K = 5, repeats = 1, params = list(),
+                   nrounds = 500, early_stopping_rounds = 10, nthread = 12,
+                   train = NULL, type = "classification",
+                   trace = TRUE, seed = 1234, maximize = NULL, fun, ...
 ) {
 
   if (inherits(object, "gbt")) {
@@ -517,7 +523,7 @@ cv.gbt <- function(
     if (is_empty(params_base[["maximize"]])) {
       params_base[["maximize"]] <- object$extra_args[["maximize"]]
     }
-  } else  if (!inherits(object, "xgb.Booster")) {
+  } else if (!inherits(object, "xgb.Booster")) {
     stop("The model object does not seems to be a Gradient Boosted Tree")
   } else {
     if (!inherits(train, "xgb.DMatrix")) {
@@ -554,10 +560,10 @@ cv.gbt <- function(
         fun <- params$eval_metric
       } else {
         fun <- list("custom" = params$eval_metric)
-      } 
+      }
     }
-  } 
-  
+  }
+
   if (length(shiny::getDefaultReactiveDomain()) > 0) {
     trace <- FALSE
     incProgress <- shiny::incProgress

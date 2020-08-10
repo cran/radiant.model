@@ -216,9 +216,6 @@ summary.regress <- function(
     return("\nInsufficient observations to estimate model")
   }
 
-  ## adjusting df for included intercept term
-  df_int <- if (attr(object$model$terms, "intercept")) 1L else 0L
-
   reg_fit <- glance(object$model) %>% round(dec)
   cat("\nSignif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n\n")
   cat("R-squared:", paste0(reg_fit$r.squared, ", "), "Adjusted R-squared:", reg_fit$adj.r.squared, "\n")
@@ -227,8 +224,8 @@ summary.regress <- function(
   if (nrow(coeff) == 1) return("\nModel contains only an intercept. No additional output shown")
 
   if (reg_fit["p.value"] < .001) reg_fit["p.value"] <- "< .001"
-  cat("F-statistic:", reg_fit$statistic, paste0("df(", reg_fit$df - df_int, ",", reg_fit$df.residual, "), p.value"), reg_fit$p.value)
-  cat("\nNr obs:", format_nr(reg_fit$df + reg_fit$df.residual, dec = 0), "\n\n")
+  cat("F-statistic:", reg_fit$statistic, paste0("df(", reg_fit$df, ",", reg_fit$df.residual, "), p.value"), reg_fit$p.value)
+  cat("\nNr obs:", format_nr(reg_fit$nobs, dec = 0), "\n\n")
 
   if (anyNA(object$model$coeff)) {
     cat("The set of explanatory variables exhibit perfect multicollinearity.\nOne or more variables were dropped from the estimation.\n")
@@ -385,7 +382,7 @@ summary.regress <- function(
 #' @param intercept Include the intercept in the coefficient plot (TRUE, FALSE). FALSE is the default
 #' @param nrobs Number of data points to show in scatter plots (-1 for all)
 #' @param shiny Did the function call originate inside a shiny app
-#' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org} for options.
+#' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{https://ggplot2.tidyverse.org} for options.
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples

@@ -284,7 +284,7 @@ summary.logistic <- function(
     nobs <- sum(object$wts)
     logit_fit$BIC <- round(-2 * logit_fit$logLik + ln(nobs) * with(logit_fit, 1 + df.null - df.residual), dec)
   } else {
-    nobs <- logit_fit$df.null + 1
+    nobs <- logit_fit$nobs
   }
 
   ## chi-squared test of overall model fit (p-value) - http://www.ats.ucla.edu/stat/r/dae/logit.htm
@@ -449,7 +449,7 @@ summary.logistic <- function(
 #' @param intercept Include the intercept in the coefficient plot (TRUE or FALSE). FALSE is the default
 #' @param nrobs Number of data points to show in scatter plots (-1 for all)
 #' @param shiny Did the function call originate inside a shiny app
-#' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{http://docs.ggplot2.org} for options.
+#' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{https://ggplot2.tidyverse.org} for options.
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
@@ -479,7 +479,7 @@ plot.logistic <- function(
     model <- x$model$model
     model$.fitted <- predict(x$model, type = "response")
   } else {
-    model <- broom::augment(x$model, type.predict = "response") %>% as.data.frame()
+    model <- broom::augment(x$model, type.predict = "response")
   }
 
   ## adjustment in case max > 1 (e.g., values are 1 and 2)
@@ -552,7 +552,7 @@ plot.logistic <- function(
       model <- sample_n(model, nrobs, replace = FALSE)
     }
     for (i in evar) {
-      if ("factor" %in% class(model[, i])) {
+      if ("factor" %in% class(model[[i]])) {
         plot_list[[paste0("scatter_", i)]] <- ggplot(model, aes_string(x = i, fill = rvar)) +
           geom_bar(position = "fill", alpha = 0.5) +
           labs(y = "")
@@ -760,7 +760,7 @@ print.logistic.predict <- function(x, ..., n = 10)
 
 #' Confidence interval for robust estimators
 #'
-#' @details Wrapper for confint with robust standard errors. See \url{http://stackoverflow.com/a/3820125/1974918}
+#' @details Wrapper for confint with robust standard errors. See \url{https://stackoverflow.com/questions/3817182/vcovhc-and-confidence-interval/3820125#3820125}
 #'
 #' @param object A fitted model object
 #' @param level The confidence level required

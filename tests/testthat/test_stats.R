@@ -1,5 +1,5 @@
-library(radiant.model)
-library(testthat)
+# library(radiant.model)
+# library(testthat)
 trim <- function(x) gsub("^\\s+|\\s+$", "", x)
 
 ######### tests ########
@@ -8,7 +8,7 @@ context("Linear regression (regress)")
 test_that("regress", {
   result <- regress(diamonds, "price", c("carat", "clarity"))
   res1 <- capture.output(summary(result))[10] %>% trim()
-  cat(paste0(res1, "\n"))
+  # cat(paste0(res1, "\n"))
   res2 <- "carat           8438.030    51.101 165.125  < .001 ***"
   expect_equal(res1, res2)
 
@@ -148,6 +148,16 @@ test_that("Neural Network - predict with date", {
   expect_equal(res1, res2)
   res1 <- capture.output(predict(result, pred_cmd = "date = '2012-1-1'"))[8] %>% trim()
   res2 <- "0.794     SI1 2012-01-01   3907.186"
+  expect_equal(res1, res2)
+})
+
+context("Gradient Boosted Trees (gbt)")
+
+test_that("Gradient Boosting - NoLD test", {
+  result <- gbt(titanic, "survived", c("pclass", "sex"), lev = "Yes", early_stopping_rounds = 0)
+  res1 <- result$model$importance$Gain
+  print(res1)
+  res2 <- c(0.75822027, 0.20981152, 0.03196821)
   expect_equal(res1, res2)
 })
 
