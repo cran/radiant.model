@@ -1,8 +1,8 @@
 873c3563425c8450e5182c0deaaa5d4b *COPYING
-9cb212c8513aec8d66a68807fa6a5767 *DESCRIPTION
+b15d6d1f5005acb4b66ee0ad02e5cee0 *DESCRIPTION
 7940af03b2d6a22126d5fd2ca18516fc *LICENSE
 57e302713d0da02faf6ad3c5b8e6f196 *NAMESPACE
-7b0f0994da4ab63c0bc6619caf51caa8 *NEWS.md
+0cbb7f2ce4f32ae4fa0537aa55096c8e *NEWS.md
 76bb1fda4d84711da39419465008f15d *R/aaa.R
 1d9439fa8972949f7ebbd8e23e83fb6a *R/crs.R
 ab224f613338a36a6cd8aef307db1b9a *R/crtree.R
@@ -19,7 +19,7 @@ d5648d4897087d700207450e90d41914 *R/logistic.R
 71d66c7f0b94156b67d2d9dc13cb68c8 *R/regress.R
 965dfa15523d4c5d74fb6aeb5b896ef7 *R/rforest.R
 a07ad7eb017941b1f6d250f0831c1a26 *R/simulater.R
-d35d3fa19ade4fac6444e875f7c3607a *README.md
+157015d41ff64c3d3e769af603bf2b44 *README.md
 2fb40dc3f7550ffd971dd223dc204056 *data/catalog.rda
 1fb92adc9f34365d89a24d48ddfce6e4 *data/direct_marketing.rda
 c3e01c3d2ffc4973ca456d4547a1e670 *data/dvd.rda
@@ -186,4 +186,4 @@ f48e5386802e09e61a86721694b10f27 *man/test_specs.Rd
 ccfc81694d63c92ea6478f442d6be760 *man/write.coeff.Rd
 8bff2177e58b3d47b0abb06455e234a4 *tests/testthat.R
 6274ce09a015af549fdc47014a8039ce *tests/testthat/output/regress1.txt
-be794a6610c178733129b8592b90d71a *tests/testthat/test_stats.R
+a4275ffe9033fdf365e987a2f4586169 *tests/testthat/test_stats.R
