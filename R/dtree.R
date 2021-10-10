@@ -135,11 +135,11 @@ dtree_parser <- function(yl) {
 #' @param base List of variable definitions from a base tree used when calling a sub-tree
 #' @param envir Environment to extract data from
 #'
-#' @return A list with the initial tree and the calculated tree
+#' @return A list with the initial tree, the calculated tree, and a data.frame with results (i.e., payoffs, probabilities, etc.)
 #'
 #' @importFrom yaml yaml.load
 #' @importFrom stringr str_match
-#' @importFrom data.tree as.Node Clone isLeaf isNotLeaf
+#' @importFrom data.tree as.Node Clone isLeaf isNotLeaf Get
 #'
 #' @seealso \code{\link{summary.dtree}} to summarize results
 #' @seealso \code{\link{plot.dtree}} to plot results
@@ -148,6 +148,9 @@ dtree_parser <- function(yl) {
 #' @examples
 #' yaml::as.yaml(movie_contract) %>% cat()
 #' dtree(movie_contract, opt = "max") %>% summary(output = TRUE)
+#' dtree(movie_contract)$payoff
+#' dtree(movie_contract)$prob
+#' dtree(movie_contract)$solution_df
 #'
 #' @export
 dtree <- function(yl, opt = "max", base = character(0), envir = parent.frame()) {
@@ -292,7 +295,13 @@ dtree <- function(yl, opt = "max", base = character(0), envir = parent.frame()) 
 
     ## based on http://stackoverflow.com/a/14656351/1974918
     tmp <- as.relistable(yl[base::setdiff(names(yl), "variables")]) %>% unlist()
-    for (i in seq_along(vn)) tmp <- gsub(vn[i], vars[[i]], tmp, fixed = TRUE)
+
+    for (i in seq_along(vn)) {
+      # only substitute variable values for probabilities (p)
+      # payoffs (payoff) and costs (cost)
+      toSub <- grepl("(\\.p$)|(\\.payoff$)|(\\.cost$)|(^p$)|(^payoff$)|(^cost$)", names(tmp))
+      tmp[toSub] <- gsub(vn[i], vars[[i]], tmp[toSub], fixed = TRUE)
+    }
 
     ## any characters left in p, payoff, or cost fields?
     isNot <- grepl("(.p$)|(.payoff$)|(.cost$)", names(tmp))
@@ -416,10 +425,22 @@ dtree <- function(yl, opt = "max", base = character(0), envir = parent.frame()) 
     return(err %>% add_class(c("dtree", "dtree-error")))
   }
 
+  payoff <- jl$Get(function(x) x$payoff)
+  prob <- jl$Get(function(x) x$p)
+
+  solution_df <- data.frame(
+    level = jl$Get(function(x) x$level),
+    label = names(payoff),
+    payoff = payoff,
+    prob = prob,
+    cost = jl$Get(function(x) x$cost),
+    type = jl$Get(function(x) x$type)
+  )
+
   list(
     jl_init = jl_init, jl = jl, yl = yl, vars = vars, opt = opt,
     type_none = type_none, prob_check = prob_check, cost_check = cost_check,
-    payoff = jl$Get(function(x) x$payoff)
+    payoff = payoff, prob = prob, solution_df = solution_df
   ) %>%
     add_class("dtree")
 }
@@ -755,7 +776,7 @@ sensitivity.dtree <- function(
     dat <- gather(ret[[i]], "decisions", "payoffs", !! base::setdiff(names(ret[[i]]), "values"))
     plot_list[[i]] <-
       ggplot(dat, aes_string(x = "values", y = "payoffs", color = "decisions")) +
-      geom_line() + geom_point() +
+      geom_line() + geom_point(aes_string(shape = "decisions"), size = 2) +
       labs(
         title = paste0("Sensitivity of decisions to changes in ", i),
         x = i
