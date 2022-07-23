@@ -1,3 +1,8 @@
+# radiant.model 1.4.6
+
+* Added option to create screenshots of settings on a page. Approach is inspired by the snapper package by @yonicd
+* Download decision analysis and decision tree plots generated using mermaid (DiagrammeR) to png format
+
 # radiant.model 1.4.4
 
 * Fix for change in input format for XGBoost that broke cross-validation
