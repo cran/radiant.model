@@ -1,13 +1,13 @@
 873c3563425c8450e5182c0deaaa5d4b *COPYING
-bacc97150411f08256a71836da9e979d *DESCRIPTION
+d4253c2d84687ff9dc48a85612a841ce *DESCRIPTION
 7940af03b2d6a22126d5fd2ca18516fc *LICENSE
 42eea45138119e77f16a3aef1408e42c *NAMESPACE
-50c374e8c5e134fb0965d54cffd7232e *NEWS.md
+4567b2feed8808a30515a36290642f13 *NEWS.md
 275c90511c90c04aed27aec9755f4f9c *R/aaa.R
 e59936c9b4e4d5e4ccabbf2c4e3d2891 *R/crs.R
 c5d9b6b275eee6bac804193b23af52f6 *R/crtree.R
 ae5340a44f2ea9a3771be3d8abe1934d *R/deprecated.R
-8afe22662b3fd00f4c29f7ba062de3de *R/dtree.R
+06d84253055521f7a5ba61d235a66ca3 *R/dtree.R
 9873bd8c9a22e4608a353b704bfcfb9d *R/evalbin.R
 459acaa6af7bbd395aaeeae807278feb *R/evalreg.R
 24876b31e8e73f735b9fa6c769bef632 *R/gbt.R
@@ -19,7 +19,7 @@ b6ae75312ee22744b9e61c8daf025231 *R/logistic.R
 c2d94108ffd7336849b983a2af28caf9 *R/regress.R
 8d280091a64799cafac37accf8dab428 *R/rforest.R
 144e88c88276ee4419cc9fd3c5d26784 *R/simulater.R
-7e77c94cfd0285b5efe37e6c84f4fddc *README.md
+776a7571cbe82ebaeb8bae2a537b834b *README.md
 2fb40dc3f7550ffd971dd223dc204056 *data/catalog.rda
 1fb92adc9f34365d89a24d48ddfce6e4 *data/direct_marketing.rda
 c3e01c3d2ffc4973ca456d4547a1e670 *data/dvd.rda
