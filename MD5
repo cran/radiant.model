@@ -1,13 +1,13 @@
 873c3563425c8450e5182c0deaaa5d4b *COPYING
-d4253c2d84687ff9dc48a85612a841ce *DESCRIPTION
+125477081af86d8cd28c974b702fb656 *DESCRIPTION
 7940af03b2d6a22126d5fd2ca18516fc *LICENSE
-42eea45138119e77f16a3aef1408e42c *NAMESPACE
-4567b2feed8808a30515a36290642f13 *NEWS.md
+f93fbf96cb6dbc11ef7018641d1a7f7e *NAMESPACE
+0f5cb84e9596f7ec864505f54e3be6b9 *NEWS.md
 275c90511c90c04aed27aec9755f4f9c *R/aaa.R
 e59936c9b4e4d5e4ccabbf2c4e3d2891 *R/crs.R
 c5d9b6b275eee6bac804193b23af52f6 *R/crtree.R
 ae5340a44f2ea9a3771be3d8abe1934d *R/deprecated.R
-06d84253055521f7a5ba61d235a66ca3 *R/dtree.R
+1cbb68a7e0c58a36d8799faeedd01b5c *R/dtree.R
 9873bd8c9a22e4608a353b704bfcfb9d *R/evalbin.R
 459acaa6af7bbd395aaeeae807278feb *R/evalreg.R
 24876b31e8e73f735b9fa6c769bef632 *R/gbt.R
@@ -35,7 +35,7 @@ ce258ebabc35f49f2baa33ac75b2c527 *data/ratings.rda
 798d63d3c7bbdc66ab3e5c990aafff81 *inst/app/server.R
 95a28bdc20eed6a7c26b60c86dee7ae3 *inst/app/tools/analysis/crs_ui.R
 f8f111eec6929da3f198b6c80e505319 *inst/app/tools/analysis/crtree_ui.R
-130ad02752257c54cdede95373ad5ab9 *inst/app/tools/analysis/dtree_ui.R
+c957b37aa8fe79b26bd5bbe13e655850 *inst/app/tools/analysis/dtree_ui.R
 4b219abcfdd988cbdf357e3014c5f21c *inst/app/tools/analysis/evalbin_ui.R
 6a6671c23dec2d29096a736ba9d8a8bf *inst/app/tools/analysis/evalreg_ui.R
 842d97b710ba840ebcaf09e3312bcd5b *inst/app/tools/analysis/gbt_ui.R
