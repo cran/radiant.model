@@ -11,6 +11,8 @@
 #' @param margin Margin on each customer purchase
 #' @param train Use data from training ("Training"), test ("Test"), both ("Both"), or all data ("All") to evaluate model evalbin
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param arr Expression to arrange (sort) the data on (e.g., "color, desc(price)")
+#' @param rows Rows to select from the specified dataset
 #' @param envir Environment to extract data from
 #'
 #' @return A list of results
@@ -25,31 +27,45 @@
 #' @export
 evalbin <- function(dataset, pred, rvar, lev = "",
                     qnt = 10, cost = 1, margin = 2,
-                    train = "All", data_filter = "",
-                    envir = parent.frame()) {
+                    train = "All", data_filter = "", arr = "",
+                    rows = NULL, envir = parent.frame()) {
 
   ## in case no inputs were provided
   if (is.na(cost)) cost <- 0
   if (is.na(margin)) margin <- 0
 
-  if (!train %in% c("", "All") && radiant.data::is_empty(data_filter)) {
-    return("** Filter required. To set a filter go to Data > View and click\n   the filter checkbox **" %>% add_class("evalbin"))
+  if (!train %in% c("", "All") && is.empty(data_filter) && is.empty(rows)) {
+    return("**\nFilter or Slice required to differentiate Train and Test. To set a filter or slice go to\nData > View and click the filter checkbox\n**" %>% add_class("evalbin"))
   }
 
-  if (radiant.data::is_empty(qnt)) qnt <- 10
+  if (is.empty(qnt)) qnt <- 10
 
   df_name <- if (!is_string(dataset)) deparse(substitute(dataset)) else dataset
   dat_list <- list()
   vars <- c(pred, rvar)
   if (train == "Both") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, arr = arr, rows = rows, envir = envir)
+    dat_list[["Test"]] <- get_data(
+      dataset,
+      vars,
+      filt = ifelse(is.empty(data_filter), "", paste0("!(", data_filter, ")")),
+      arr = arr,
+      rows = ifelse(is.empty(rows), "", paste0("-(", rows, ")")),
+      envir = envir
+    )
   } else if (train == "Training") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, arr = arr, rows = rows, envir = envir)
   } else if (train == "Test" | train == "Validation") {
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
+    dat_list[["Test"]] <- get_data(
+      dataset,
+      vars,
+      filt = ifelse(is.empty(data_filter), "", paste0("!(", data_filter, ")")),
+      arr = arr,
+      rows = ifelse(is.empty(rows), "", paste0("-(", rows, ")")),
+      envir = envir
+    )
   } else {
-    dat_list[["All"]] <- get_data(dataset, vars, filt = "", envir = envir)
+    dat_list[["All"]] <- get_data(dataset, vars, filt = "", rows = NULL, envir = envir)
   }
 
   qnt_name <- "bins"
@@ -146,8 +162,8 @@ evalbin <- function(dataset, pred, rvar, lev = "",
 
   list(
     dataset = dataset, df_name = df_name, data_filter = data_filter,
-    train = train, pred = pred, rvar = rvar, lev = lev,
-    qnt = qnt, cost = cost, margin = margin
+    arr = arr, rows = rows, train = train, pred = pred, rvar = rvar,
+    lev = lev, qnt = qnt, cost = cost, margin = margin
   ) %>% add_class("evalbin")
 }
 
@@ -175,8 +191,14 @@ summary.evalbin <- function(object, prn = TRUE, dec = 3, ...) {
 
   cat("Evaluate predictions for binary response models\n")
   cat("Data        :", object$df_name, "\n")
-  if (!radiant.data::is_empty(object$data_filter)) {
+  if (!is.empty(object$data_filter)) {
     cat("Filter      :", gsub("\\n", "", object$data_filter), "\n")
+  }
+  if (!is.empty(object$arr)) {
+    cat("Arrange     :", gsub("\\n", "", object$arr), "\n")
+  }
+  if (!is.empty(object$rows)) {
+    cat("Slice       :", gsub("\\n", "", object$rows), "\n")
   }
   cat("Results for :", object$train, "\n")
   cat("Predictors  :", paste0(object$pred, collapse = ", "), "\n")
@@ -224,7 +246,7 @@ plot.evalbin <- function(x, plots = c("lift", "gains"),
     plot_list[["lift"]] <-
       visualize(x$dataset, xvar = "cum_prop", yvar = "cum_lift", type = "line", color = "pred", custom = TRUE) +
       geom_point() +
-      geom_segment(aes(x = 0, y = 1, xend = 1, yend = 1), size = .1, color = "black") +
+      geom_segment(aes(x = 0, y = 1, xend = 1, yend = 1), linewidth = .1, color = "black") +
       labs(y = "Cumulative lift", x = "Proportion of customers")
   }
 
@@ -241,7 +263,7 @@ plot.evalbin <- function(x, plots = c("lift", "gains"),
     plot_list[["gains"]] <-
       visualize(dataset, xvar = "cum_prop", yvar = "cum_gains", type = "line", color = "pred", custom = TRUE) +
       geom_point() +
-      geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), size = .1, color = "black") +
+      geom_segment(aes(x = 0, y = 0, xend = 1, yend = 1), linewidth = .1, color = "black") +
       labs(y = "Cumulative gains", x = "Proportion of customers")
   }
 
@@ -263,7 +285,7 @@ plot.evalbin <- function(x, plots = c("lift", "gains"),
       custom = TRUE
     ) +
       geom_point() +
-      geom_segment(aes(x = 0, y = 0, xend = 1, yend = 0), size = .1, color = "black") +
+      geom_segment(aes(x = 0, y = 0, xend = 1, yend = 0), linewidth = .1, color = "black") +
       labs(y = "Profit", x = "Proportion of customers")
   }
 
@@ -277,7 +299,7 @@ plot.evalbin <- function(x, plots = c("lift", "gains"),
       custom = TRUE
     ) +
       geom_point() +
-      geom_segment(aes(x = 0, y = 0, xend = 1, yend = 0), size = .1, color = "black") +
+      geom_segment(aes(x = 0, y = 0, xend = 1, yend = 0), linewidth = .1, color = "black") +
       labs(y = "Return on Marketing Expenditures (ROME)", x = "Proportion of customers")
   }
 
@@ -315,6 +337,8 @@ plot.evalbin <- function(x, plots = c("lift", "gains"),
 #' @param margin Margin on each customer purchase
 #' @param train Use data from training ("Training"), test ("Test"), both ("Both"), or all data ("All") to evaluate model evalbin
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param arr Expression to arrange (sort) the data on (e.g., "color, desc(price)")
+#' @param rows Rows to select from the specified dataset
 #' @param envir Environment to extract data from
 #' @param ... further arguments passed to or from other methods
 #'
@@ -331,9 +355,10 @@ plot.evalbin <- function(x, plots = c("lift", "gains"),
 #'
 #' @export
 confusion <- function(dataset, pred, rvar, lev = "", cost = 1, margin = 2,
-                      train = "All", data_filter = "", envir = parent.frame(), ...) {
-  if (!train %in% c("", "All") && radiant.data::is_empty(data_filter)) {
-    return("** Filter required. To set a filter go to Data > View and click the filter checkbox **" %>% add_class("confusion"))
+                      train = "All", data_filter = "", arr = "", rows = NULL,
+                      envir = parent.frame(), ...) {
+  if (!train %in% c("", "All") && is.empty(data_filter) && is.empty(rows)) {
+    return("**\nFilter or Slice required to differentiate Train and Test. To set a filter or slice go to\nData > View and click the filter checkbox\n**" %>% add_class("confusion"))
   }
 
   ## in case no inputs were provided
@@ -349,14 +374,28 @@ confusion <- function(dataset, pred, rvar, lev = "", cost = 1, margin = 2,
   dat_list <- list()
   vars <- c(pred, rvar)
   if (train == "Both") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, arr = arr, rows = rows, envir = envir)
+    dat_list[["Test"]] <- get_data(
+      dataset,
+      vars,
+      filt = ifelse(is.empty(data_filter), "", paste0("!(", data_filter, ")")),
+      arr = arr,
+      rows = ifelse(is.empty(rows), "", paste0("-(", rows, ")")),
+      envir = envir
+    )
   } else if (train == "Training") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, arr = arr, rows = rows, envir = envir)
   } else if (train == "Test" | train == "Validation") {
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
+    dat_list[["Test"]] <- get_data(
+      dataset,
+      vars,
+      filt = ifelse(is.empty(data_filter), "", paste0("!(", data_filter, ")")),
+      arr = arr,
+      rows = ifelse(is.empty(rows), "", paste0("-(", rows, ")")),
+      envir = envir
+    )
   } else {
-    dat_list[["All"]] <- get_data(dataset, vars, filt = "", envir = envir)
+    dat_list[["All"]] <- get_data(dataset, vars, filt = "", rows = rows, envir = envir)
   }
 
   pdat <- list()
@@ -475,8 +514,9 @@ confusion <- function(dataset, pred, rvar, lev = "", cost = 1, margin = 2,
   )
 
   list(
-    dataset = dataset, df_name = df_name, data_filter = data_filter, train = train,
-    pred = pred, rvar = rvar, lev = lev, cost = cost, margin = margin
+    dataset = dataset, df_name = df_name, data_filter = data_filter, arr = arr,
+    rows = rows, train = train, pred = pred, rvar = rvar, lev = lev, cost = cost,
+    margin = margin
   ) %>% add_class("confusion")
 }
 
@@ -503,8 +543,14 @@ summary.confusion <- function(object, dec = 3, ...) {
 
   cat("Confusion matrix\n")
   cat("Data       :", object$df_name, "\n")
-  if (!radiant.data::is_empty(object$data_filter)) {
+  if (!is.empty(object$data_filter)) {
     cat("Filter     :", gsub("\\n", "", object$data_filter), "\n")
+  }
+  if (!is.empty(object$arr)) {
+    cat("Arrange    :", gsub("\\n", "", object$arr), "\n")
+  }
+  if (!is.empty(object$rows)) {
+    cat("Slice      :", gsub("\\n", "", object$rows), "\n")
   }
   cat("Results for:", object$train, "\n")
   cat("Predictors :", paste0(object$pred, collapse = ", "), "\n")

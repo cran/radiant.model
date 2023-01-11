@@ -16,6 +16,9 @@ logit_sum_check <- c(
 logit_plots <- c(
   "None" = "none", "Distribution" = "dist",
   "Correlations" = "correlations", "Scatter" = "scatter",
+  "Permutation Importance" = "vip",
+  "Prediction plots" = "pred_plot",
+  "Partial Dependence" = "pdp",
   "Model fit" = "fit", "Coefficient (OR) plot" = "coef",
   "Influential observations" = "influence"
 )
@@ -27,6 +30,8 @@ logit_args <- as.list(formals(logistic))
 logit_inputs <- reactive({
   ## loop needed because reactive values don't allow single bracket indexing
   logit_args$data_filter <- if (input$show_filter) input$data_filter else ""
+  logit_args$arr <- if (input$show_filter) input$data_arrange else ""
+  logit_args$rows <- if (input$show_filter) input$data_rows else ""
   logit_args$dataset <- input$dataset
   for (i in r_drop(names(logit_args))) {
     logit_args[[i]] <- input[[paste0("logit_", i)]]
@@ -153,10 +158,37 @@ output$ui_logit_evar <- renderUI({
 output$ui_logit_incl <- renderUI({
   req(available(input$logit_evar))
   vars <- input$logit_evar
+  if (input[["logit_plots"]] == "coef") {
+    vars_init <- vars
+  } else {
+    vars_init <- c()
+  }
   selectInput(
     inputId = "logit_incl", label = "Explanatory variables to include:", choices = vars,
-    selected = state_multiple("logit_incl", vars, vars),
+    selected = state_multiple("logit_incl", vars, vars_init),
     multiple = TRUE, size = min(10, length(vars)), selectize = FALSE
+  )
+})
+
+output$ui_logit_incl_int <- renderUI({
+  req(available(input$logit_evar))
+  choices <- character(0)
+  vars <- input$logit_evar
+  ## list of interaction terms to show
+  if (length(vars) > 1) {
+    choices <- c(choices, iterms(vars, 2))
+  } else {
+    updateSelectInput(session, "logit_incl_int", choices = choices, selected = choices)
+    return()
+  }
+  selectInput(
+    "logit_incl_int",
+    label = "2-way interactions to explore:",
+    choices = choices,
+    selected = state_multiple("logit_incl_int", choices),
+    multiple = TRUE,
+    size = min(8, length(choices)),
+    selectize = FALSE
   )
 })
 
@@ -233,8 +265,8 @@ output$ui_logit_show_interactions <- renderUI({
 output$ui_logit_int <- renderUI({
   choices <- character(0)
   if (isolate("logit_show_interactions" %in% names(input)) &&
-    radiant.data::is_empty(input$logit_show_interactions)) {
-  } else if (radiant.data::is_empty(input$logit_show_interactions)) {
+    is.empty(input$logit_show_interactions)) {
+  } else if (is.empty(input$logit_show_interactions)) {
     return()
   } else {
     vars <- input$logit_evar
@@ -381,10 +413,22 @@ output$ui_logistic <- renderUI({
           selected = state_single("logit_plots", logit_plots)
         ),
         conditionalPanel(
-          condition = "input.logit_plots == 'coef'",
+          condition = "input.logit_plots == 'coef' | input.logit_plots == 'pdp' | input.logit_plots == 'pred_plot'",
           uiOutput("ui_logit_incl"),
-          checkboxInput("logit_intercept", "Include intercept", state_init("logit_intercept", FALSE))
+          conditionalPanel(
+            condition = "input.logit_plots == 'coef'",
+            checkboxInput("logit_intercept", "Include intercept", state_init("logit_intercept", FALSE))
+          ),
+          conditionalPanel(
+            condition = "input.logit_plots == 'pdp' | input.logit_plots == 'pred_plot'",
+            uiOutput("ui_logit_incl_int")
+          )
         ),
+        # conditionalPanel(
+        #   condition = "input.logit_plots == 'coef'",
+        #   uiOutput("ui_logit_incl"),
+        #   checkboxInput("logit_intercept", "Include intercept", state_init("logit_intercept", FALSE))
+        # ),
         conditionalPanel(
           condition = "input.logit_plots == 'correlations' |
                        input.logit_plots == 'scatter'",
@@ -423,42 +467,47 @@ logit_plot <- reactive({
   if (logit_available() != "available") {
     return()
   }
-  if (radiant.data::is_empty(input$logit_plots, "none")) {
+  if (is.empty(input$logit_plots, "none")) {
     return()
   }
 
   plot_height <- 500
   plot_width <- 650
-  nrVars <- length(input$logit_evar) + 1
+  nr_vars <- length(input$logit_evar) + 1
 
-  if (input$logit_plots == "dist") plot_height <- (plot_height / 2) * ceiling(nrVars / 2)
-  if (input$logit_plots == "fit") plot_width <- 1.5 * plot_width
-  if (input$logit_plots == "correlations") {
-    plot_height <- 150 * nrVars
-    plot_width <- 150 * nrVars
-  }
-  if (input$logit_plots == "scatter") plot_height <- 300 * nrVars
-  if (input$logit_plots == "coef") {
+  if (input$logit_plots == "dist") {
+    plot_height <- (plot_height / 2) * ceiling(nr_vars / 2)
+  } else if (input$logit_plots == "fit") {
+    plot_width <- 1.5 * plot_width
+  } else if (input$logit_plots == "correlations") {
+    plot_height <- 150 * nr_vars
+    plot_width <- 150 * nr_vars
+  } else if (input$logit_plots == "scatter") {
+    plot_height <- 300 * nr_vars
+  } else if (input$logit_plots == "coef") {
     incl <- paste0("^(", paste0(input$logit_incl, "[|]*", collapse = "|"), ")")
     nr_coeff <- sum(grepl(incl, .logistic()$coeff$label))
     plot_height <- 300 + 20 * nr_coeff
+  } else if (input$logit_plots == "vip") {
+    plot_height <- max(500, 30 * nr_vars)
+  } else if (input$logit_plots %in% c("pdp", "pred_plot")) {
+    nr_vars <- length(input$logit_incl) + length(input$logit_incl_int)
+    plot_height <- max(250, ceiling(nr_vars / 2) * 250)
+    if (length(input$logit_incl_int) > 0) {
+      plot_width <- plot_width + min(2, length(input$logit_incl_int)) * 90
+    }
   }
-
   list(plot_width = plot_width, plot_height = plot_height)
 })
 
 logit_plot_width <- function() {
   logit_plot() %>%
-    {
-      if (is.list(.)) .$plot_width else 650
-    }
+    (function(x) if (is.list(x)) x$plot_width else 650)
 }
 
 logit_plot_height <- function() {
   logit_plot() %>%
-    {
-      if (is.list(.)) .$plot_height else 500
-    }
+    (function(x) if (is.list(x)) x$plot_height else 650)
 }
 
 logit_pred_plot_height <- function() {
@@ -551,13 +600,13 @@ logit_available <- reactive({
   if (logit_available() != "available") {
     return(logit_available())
   }
-  if (radiant.data::is_empty(input$logit_predict, "none")) {
+  if (is.empty(input$logit_predict, "none")) {
     return("** Select prediction input **")
   }
-  if ((input$logit_predict == "data" || input$logit_predict == "datacmd") && radiant.data::is_empty(input$logit_pred_data)) {
+  if ((input$logit_predict == "data" || input$logit_predict == "datacmd") && is.empty(input$logit_pred_data)) {
     return("** Select data for prediction **")
   }
-  if (input$logit_predict == "cmd" && radiant.data::is_empty(input$logit_pred_cmd)) {
+  if (input$logit_predict == "cmd" && is.empty(input$logit_pred_cmd)) {
     return("** Enter prediction commands **")
   }
 
@@ -580,7 +629,7 @@ logit_available <- reactive({
   req(
     pressed(input$logit_run), input$logit_pred_plot,
     available(input$logit_xvar),
-    !radiant.data::is_empty(input$logit_predict, "none")
+    !is.empty(input$logit_predict, "none")
   )
 
   withProgress(message = "Generating prediction plot", value = 1, {
@@ -588,16 +637,42 @@ logit_available <- reactive({
   })
 })
 
+# pred_pdp_
+# logit_available <- reactive({
+#   if (not_available(input$logit_rvar)) {
+#     "This analysis requires a response variable with two levels and one\nor more explanatory variables. If these variables are not available\nplease select another dataset.\n\n" %>%
+#       suggest_data("titanic")
+#   } else if (not_available(input$logit_evar)) {
+#     "Please select one or more explanatory variables.\n\n" %>%
+#       suggest_data("titanic")
+#   } else {
+#     "available"
+#   }
+# })
+
+
+check_for_pdp_pred_plots <- function(mod_type) {
+  if (input[[glue("{mod_type}_plots")]] %in% c("pdp", "pred_plot")) {
+    req(sum(input[[glue("{mod_type}_incl")]] %in% input[[glue("{mod_type}_evar")]]) == length(input[[glue("{mod_type}_incl")]]))
+    if (length(input[[glue("{mod_type}_incl_int")]]) > 0) {
+      incl_int <- unique(unlist(strsplit(input[[glue("{mod_type}_incl_int")]], ":")))
+      req(sum(incl_int %in% input[[glue("{mod_type}_evar")]]) == length(incl_int))
+    }
+  }
+}
+
 .plot_logistic <- reactive({
   if (not_pressed(input$logit_run)) {
     return("** Press the Estimate button to estimate the model **")
-  } else if (radiant.data::is_empty(input$logit_plots, "none")) {
+  } else if (is.empty(input$logit_plots, "none")) {
     return("Please select a logistic regression plot from the drop-down menu")
   } else if (logit_available() != "available") {
     return(logit_available())
   }
 
   if (input$logit_plots %in% c("correlations", "scatter")) req(input$logit_nrobs)
+  check_for_pdp_pred_plots("logit")
+
   if (input$logit_plots == "correlations") {
     capture_plot(do.call(plot, c(list(x = .logistic()), logit_plot_inputs())))
   } else {
@@ -612,14 +687,15 @@ logistic_report <- function() {
   inp_out <- list("", "")
   inp_out[[1]] <- clean_args(logit_sum_inputs(), logit_sum_args[-1])
   figs <- FALSE
-  if (!radiant.data::is_empty(input$logit_plots, "none")) {
-    inp_out[[2]] <- clean_args(logit_plot_inputs(), logit_plot_args[-1])
+  if (!is.empty(input$logit_plots, "none")) {
+    inp <- check_plot_inputs(logit_plot_inputs())
+    inp_out[[2]] <- clean_args(inp, logit_plot_args[-1])
     inp_out[[2]]$custom <- FALSE
     outputs <- c(outputs, "plot")
     figs <- TRUE
   }
 
-  if (!radiant.data::is_empty(input$logit_store_res_name)) {
+  if (!is.empty(input$logit_store_res_name)) {
     fixed <- fix_names(input$logit_store_res_name)
     updateTextInput(session, "logit_store_res_name", value = fixed)
     xcmd <- paste0(input$dataset, " <- store(", input$dataset, ", result, name = \"", fixed, "\")\n")
@@ -627,17 +703,17 @@ logistic_report <- function() {
     xcmd <- ""
   }
 
-  if (!radiant.data::is_empty(input$logit_predict, "none") &&
-    (!radiant.data::is_empty(input$logit_pred_data) || !radiant.data::is_empty(input$logit_pred_cmd))) {
+  if (!is.empty(input$logit_predict, "none") &&
+    (!is.empty(input$logit_pred_data) || !is.empty(input$logit_pred_cmd))) {
     pred_args <- clean_args(logit_pred_inputs(), logit_pred_args[-1])
 
-    if (!radiant.data::is_empty(pred_args$pred_cmd)) {
-      pred_args$pred_cmd <- strsplit(pred_args$pred_cmd, ";")[[1]]
+    if (!is.empty(pred_args$pred_cmd)) {
+      pred_args$pred_cmd <- strsplit(pred_args$pred_cmd, ";\\s*")[[1]]
     } else {
       pred_args$pred_cmd <- NULL
     }
 
-    if (!radiant.data::is_empty(pred_args$pred_data)) {
+    if (!is.empty(pred_args$pred_data)) {
       pred_args$pred_data <- as.symbol(pred_args$pred_data)
     } else {
       pred_args$pred_data <- NULL
@@ -658,7 +734,7 @@ logistic_report <- function() {
     }
     # xcmd <- paste0(xcmd, "\n# write.csv(pred, file = \"~/logit_predictions.csv\", row.names = FALSE)")
 
-    if (input$logit_pred_plot && !radiant.data::is_empty(input$logit_xvar)) {
+    if (input$logit_pred_plot && !is.empty(input$logit_xvar)) {
       inp_out[[3 + figs]] <- clean_args(logit_pred_plot_inputs(), logit_pred_plot_args[-1])
       inp_out[[3 + figs]]$result <- "pred"
       outputs <- c(outputs, "plot")
@@ -693,7 +769,7 @@ observeEvent(input$logit_store_res, {
 })
 
 observeEvent(input$logit_store_pred, {
-  req(!radiant.data::is_empty(input$logit_pred_data), pressed(input$logit_run))
+  req(!is.empty(input$logit_pred_data), pressed(input$logit_run))
   pred <- .predict_logistic()
   if (is.null(pred)) {
     return()

@@ -1,6 +1,7 @@
 rf_plots <- c(
   "None" = "none",
-  "Variable Importance" = "vimp",
+  "Permutation Importance" = "vip",
+  "Prediction plots" = "pred_plot",
   "Partial Dependence" = "pdp",
   "Dashboard" = "dashboard"
 )
@@ -12,6 +13,8 @@ rf_args <- as.list(formals(rforest))
 rf_inputs <- reactive({
   ## loop needed because reactive values don't allow single bracket indexing
   rf_args$data_filter <- if (input$show_filter) input$data_filter else ""
+  rf_args$arr <- if (input$show_filter) input$data_arrange else ""
+  rf_args$rows <- if (input$show_filter) input$data_rows else ""
   rf_args$dataset <- input$dataset
   for (i in r_drop(names(rf_args))) {
     rf_args[[i]] <- input[[paste0("rf_", i)]]
@@ -48,6 +51,21 @@ rf_pred_inputs <- reactive({
   rf_pred_args
 })
 
+rf_plot_args <- as.list(if (exists("plot.rforest")) {
+  formals(plot.rforest)
+} else {
+  formals(radiant.model:::plot.rforest)
+})
+
+## list of function inputs selected by user
+rf_plot_inputs <- reactive({
+  ## loop needed because reactive values don't allow single bracket indexing
+  for (i in names(rf_plot_args)) {
+    rf_plot_args[[i]] <- input[[paste0("rf_", i)]]
+  }
+  rf_plot_args
+})
+
 rf_pred_plot_args <- as.list(if (exists("plot.model.predict")) {
   formals(plot.model.predict)
 } else {
@@ -78,9 +96,9 @@ output$ui_rf_rvar <- renderUI({
   })
 
   init <- if (input$rf_type == "classification") {
-    if (radiant.data::is_empty(input$logit_rvar)) isolate(input$rf_rvar) else input$logit_rvar
+    if (is.empty(input$logit_rvar)) isolate(input$rf_rvar) else input$logit_rvar
   } else {
-    if (radiant.data::is_empty(input$reg_rvar)) isolate(input$rf_rvar) else input$reg_rvar
+    if (is.empty(input$reg_rvar)) isolate(input$rf_rvar) else input$reg_rvar
   }
 
   selectInput(
@@ -99,7 +117,7 @@ output$ui_rf_lev <- renderUI({
     as_factor() %>%
     levels()
 
-  init <- if (radiant.data::is_empty(input$logit_lev)) isolate(input$rf_lev) else input$logit_lev
+  init <- if (is.empty(input$logit_lev)) isolate(input$rf_lev) else input$logit_lev
   selectInput(
     inputId = "rf_lev", label = "Choose first level:",
     choices = levs,
@@ -117,9 +135,9 @@ output$ui_rf_evar <- renderUI({
   }
 
   init <- if (input$rf_type == "classification") {
-    if (radiant.data::is_empty(input$logit_evar)) isolate(input$rf_evar) else input$logit_evar
+    if (is.empty(input$logit_evar)) isolate(input$rf_evar) else input$logit_evar
   } else {
-    if (radiant.data::is_empty(input$reg_evar)) isolate(input$rf_evar) else input$reg_evar
+    if (is.empty(input$reg_evar)) isolate(input$rf_evar) else input$reg_evar
   }
 
   selectInput(
@@ -132,6 +150,10 @@ output$ui_rf_evar <- renderUI({
     selectize = FALSE
   )
 })
+
+# function calls generate UI elements
+output_incl("rf")
+output_incl_int("rf")
 
 output$ui_rf_wts <- renderUI({
   isNum <- .get_class() %in% c("integer", "numeric", "ts")
@@ -320,9 +342,14 @@ output$ui_rf <- renderUI({
           uiOutput("ui_rf_nrobs")
         ),
         conditionalPanel(
-          condition = "input.rf_plots == 'pdp'",
-          checkboxInput("rf_qtiles", "Show quintiles", state_init("rf_qtiles", FALSE))
+          condition = "input.rf_plots == 'pdp' | input.rf_plots == 'pred_plot'",
+          uiOutput("ui_rf_incl"),
+          uiOutput("ui_rf_incl_int")
         )
+        # conditionalPanel(
+        #   condition = "input.rf_plots == 'pdp'",
+        #   checkboxInput("rf_qtiles", "Show quintiles", state_init("rf_qtiles", FALSE))
+        # )
       ),
       # conditionalPanel(
       #   condition = "input.tabs_rf == 'Summary'",
@@ -344,7 +371,7 @@ rf_plot <- reactive({
   if (rf_available() != "available") {
     return()
   }
-  if (radiant.data::is_empty(input$rf_plots, "none")) {
+  if (is.empty(input$rf_plots, "none")) {
     return()
   }
   res <- .rf()
@@ -352,31 +379,33 @@ rf_plot <- reactive({
     return()
   }
   nr_vars <- length(res$evar)
+  plot_height <- 500
+  plot_width <- 650
   if ("dashboard" %in% input$rf_plots) {
     plot_height <- 750
-  } else if ("pdp" %in% input$rf_plots) {
-    plot_height <- max(500, ceiling(nr_vars / 2) * 250)
+  } else if (input$rf_plots %in% c("pdp", "pred_plot")) {
+    nr_vars <- length(input$rf_incl) + length(input$rf_incl_int)
+    plot_height <- max(250, ceiling(nr_vars / 2) * 250)
+    if (length(input$rf_incl_int) > 0) {
+      plot_width <- plot_width + min(2, length(input$rf_incl_int)) * 90
+    }
   } else if ("vimp" %in% input$rf_plots) {
-    plot_height <- max(300, nr_vars * 50)
-  } else {
-    plot_height <- 500
+    plot_height <- max(500, nr_vars * 35)
+  } else if ("vip" %in% input$rf_plots) {
+    plot_height <- max(500, nr_vars * 35)
   }
 
-  list(plot_width = 650, plot_height = plot_height)
+  list(plot_width = plot_width, plot_height = plot_height)
 })
 
 rf_plot_width <- function() {
   rf_plot() %>%
-    {
-      if (is.list(.)) .$plot_width else 650
-    }
+    (function(x) if (is.list(x)) x$plot_width else 650)
 }
 
 rf_plot_height <- function() {
   rf_plot() %>%
-    {
-      if (is.list(.)) .$plot_height else 500
-    }
+    (function(x) if (is.list(x)) x$plot_height else 500)
 }
 
 rf_pred_plot_height <- function() {
@@ -456,10 +485,10 @@ rf_available <- reactive({
   rfi <- rf_inputs()
   rfi$envir <- r_data
 
-  if (radiant.data::is_empty(rfi$mtry)) rfi$mtry <- NULL
-  if (radiant.data::is_empty(rfi$num.trees)) rfi$num.trees <- 100
-  if (radiant.data::is_empty(rfi$min.node.size)) rfi$min.node.size <- 1
-  if (radiant.data::is_empty(rfi$sample.fraction)) rfi$sample.fraction <- 1
+  if (is.empty(rfi$mtry)) rfi$mtry <- NULL
+  if (is.empty(rfi$num.trees)) rfi$num.trees <- 100
+  if (is.empty(rfi$min.node.size)) rfi$min.node.size <- 1
+  if (is.empty(rfi$sample.fraction)) rfi$sample.fraction <- 1
 
   withProgress(
     message = "Estimating random forest", value = 1,
@@ -484,11 +513,11 @@ rf_available <- reactive({
   if (rf_available() != "available") {
     return(rf_available())
   }
-  if (radiant.data::is_empty(input$rf_predict, "none")) {
+  if (is.empty(input$rf_predict, "none")) {
     return("** Select prediction input **")
-  } else if ((input$rf_predict == "data" || input$rf_predict == "datacmd") && radiant.data::is_empty(input$rf_pred_data)) {
+  } else if ((input$rf_predict == "data" || input$rf_predict == "datacmd") && is.empty(input$rf_pred_data)) {
     return("** Select data for prediction **")
-  } else if (input$rf_predict == "cmd" && radiant.data::is_empty(input$rf_pred_cmd)) {
+  } else if (input$rf_predict == "cmd" && is.empty(input$rf_pred_cmd)) {
     return("** Enter prediction commands **")
   }
 
@@ -497,8 +526,8 @@ rf_available <- reactive({
     rfi$object <- .rf()
     rfi$envir <- r_data
     rfi$OOB <- input$dataset == input$rf_pred_data &&
-      (input$rf_predict == "data" || (input$rf_predict == "datacmd" && radiant.data::is_empty(input$rf_pred_cmd))) &&
-      (radiant.data::is_empty(input$data_filter) || input$show_filter == FALSE) &&
+      (input$rf_predict == "data" || (input$rf_predict == "datacmd" && is.empty(input$rf_pred_cmd))) &&
+      ((is.empty(input$data_filter) && is.empty(input$data_rows)) || input$show_filter == FALSE) &&
       pressed(input$rf_run)
     do.call(predict, rfi)
   })
@@ -506,16 +535,14 @@ rf_available <- reactive({
 
 .predict_print_rf <- reactive({
   .predict_rf() %>%
-    {
-      if (is.character(.)) cat(., "\n") else print(.)
-    }
+    (function(x) if (is.character(x)) cat(x, "\n") else print(x))
 })
 
 .predict_plot_rf <- reactive({
   req(
     pressed(input$rf_run), input$rf_pred_plot,
     available(input$rf_xvar),
-    !radiant.data::is_empty(input$rf_predict, "none")
+    !is.empty(input$rf_predict, "none")
   )
 
   withProgress(message = "Generating prediction plot", value = 1, {
@@ -530,18 +557,15 @@ rf_available <- reactive({
   if (rf_available() != "available") {
     return(rf_available())
   }
-  # req(input$rf_size)
-  if (radiant.data::is_empty(input$rf_plots, "none")) {
+  if (is.empty(input$rf_plots, "none")) {
     return("Please select a random forest plot from the drop-down menu")
   }
-  pinp <- list(plots = input$rf_plots, shiny = TRUE)
+  pinp <- rf_plot_inputs()
+  pinp$shiny <- TRUE
   if (input$rf_plots == "dashboard") {
     req(input$rf_nrobs)
-    pinp <- c(pinp, nrobs = as_integer(input$rf_nrobs))
-  } else if (input$rf_plots == "pdp") {
-    pinp <- c(pinp, qtiles = input$rf_qtiles)
   }
-
+  check_for_pdp_pred_plots("rf")
   withProgress(message = "Generating plots", value = 1, {
     do.call(plot, c(list(x = .rf()), pinp))
   })
@@ -560,7 +584,7 @@ rf_available <- reactive({
 # })
 
 observeEvent(input$rf_store_pred, {
-  req(!radiant.data::is_empty(input$rf_pred_data), pressed(input$rf_run))
+  req(!is.empty(input$rf_pred_data), pressed(input$rf_run))
   pred <- .predict_rf()
   if (is.null(pred)) {
     return()
@@ -579,7 +603,7 @@ observeEvent(input$rf_store_pred, {
 })
 
 rf_report <- function() {
-  if (radiant.data::is_empty(input$rf_rvar)) {
+  if (is.empty(input$rf_rvar)) {
     return(invisible())
   }
 
@@ -587,19 +611,15 @@ rf_report <- function() {
   inp_out <- list("", "")
   figs <- FALSE
 
-  if (!radiant.data::is_empty(input$rf_plots, "none")) {
-    if (input$rf_type == "regression" && input$rf_plots == "dashboard") {
-      inp_out[[2]] <- list(plots = input$rf_plots, nrobs = as_integer(input$rf_nrobs), custom = FALSE)
-    } else if (input$rf_plots == "pdp") {
-      inp_out[[2]] <- list(plots = input$rf_plots, qtiles = input$rf_qtiles, custom = FALSE)
-    } else {
-      inp_out[[2]] <- list(plots = input$rf_plots, custom = FALSE)
-    }
+  if (!is.empty(input$rf_plots, "none")) {
+    inp <- check_plot_inputs(rf_plot_inputs())
+    inp_out[[2]] <- clean_args(inp, rf_plot_args[-1])
+    inp_out[[2]]$custom <- FALSE
     outputs <- c(outputs, "plot")
     figs <- TRUE
   }
 
-  # if (!radiant.data::is_empty(input$rf_store_res_name)) {
+  # if (!is.empty(input$rf_store_res_name)) {
   #   fixed <- fix_names(input$rf_store_res_name)
   #   updateTextInput(session, "rf_store_res_name", value = fixed)
   #   xcmd <- paste0(input$dataset, " <- store(", input$dataset, ", result, name = \"", fixed, "\")\n")
@@ -608,23 +628,23 @@ rf_report <- function() {
   # }
   xcmd <- ""
 
-  if (!radiant.data::is_empty(input$rf_predict, "none") &&
-    (!radiant.data::is_empty(input$rf_pred_data) || !radiant.data::is_empty(input$rf_pred_cmd))) {
+  if (!is.empty(input$rf_predict, "none") &&
+    (!is.empty(input$rf_pred_data) || !is.empty(input$rf_pred_cmd))) {
     pred_args <- clean_args(rf_pred_inputs(), rf_pred_args[-1])
 
-    if (!radiant.data::is_empty(pred_args$pred_cmd)) {
-      pred_args$pred_cmd <- strsplit(pred_args$pred_cmd, ";")[[1]]
+    if (!is.empty(pred_args$pred_cmd)) {
+      pred_args$pred_cmd <- strsplit(pred_args$pred_cmd, ";\\s*")[[1]]
     } else {
       pred_args$pred_cmd <- NULL
     }
 
-    if (radiant.data::is_empty(pred_args$pred_cmd) && !radiant.data::is_empty(pred_args$pred_data)) {
+    if (is.empty(pred_args$pred_cmd) && !is.empty(pred_args$pred_data)) {
       pred_args$OOB <- input$dataset == pred_args$pred_data &&
-        (radiant.data::is_empty(input$data_filter) || input$show_filter == FALSE) &&
+        ((is.empty(input$data_filter) && is.empty(input$data_rows)) || input$show_filter == FALSE) &&
         pressed(input$rf_run)
     }
 
-    if (!radiant.data::is_empty(pred_args$pred_data)) {
+    if (!is.empty(pred_args$pred_data)) {
       pred_args$pred_data <- as.symbol(pred_args$pred_data)
     } else {
       pred_args$pred_data <- NULL
@@ -642,7 +662,7 @@ rf_report <- function() {
       )
     }
 
-    if (input$rf_pred_plot && !radiant.data::is_empty(input$rf_xvar)) {
+    if (input$rf_pred_plot && !is.empty(input$rf_xvar)) {
       inp_out[[3 + figs]] <- clean_args(rf_pred_plot_inputs(), rf_pred_plot_args[-1])
       inp_out[[3 + figs]]$result <- "pred"
       outputs <- c(outputs, "plot")

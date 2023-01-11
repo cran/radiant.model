@@ -18,6 +18,8 @@
 #' @param wts Weights to use in estimation
 #' @param seed Random seed to use as the starting point
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param arr Expression to arrange (sort) the data on (e.g., "color, desc(price)")
+#' @param rows Rows to select from the specified dataset
 #' @param envir Environment to extract data from
 #' @param ... Further arguments to pass to xgboost
 #'
@@ -46,15 +48,13 @@
 #' @importFrom lubridate is.Date
 #'
 #' @export
-gbt <- function(
-  dataset, rvar, evar, type = "classification", lev = "",
-  max_depth = 6, learning_rate = 0.3, min_split_loss = 0,
-  min_child_weight = 1, subsample = 1,
-  nrounds = 100, early_stopping_rounds = 10,
-  nthread = 12, wts = "None", seed = NA,
-  data_filter = "", envir = parent.frame(), ...
-) {
-
+gbt <- function(dataset, rvar, evar, type = "classification", lev = "",
+                max_depth = 6, learning_rate = 0.3, min_split_loss = 0,
+                min_child_weight = 1, subsample = 1,
+                nrounds = 100, early_stopping_rounds = 10,
+                nthread = 12, wts = "None", seed = NA,
+                data_filter = "", arr = "", rows = NULL,
+                envir = parent.frame(), ...) {
   if (rvar %in% evar) {
     return("Response variable contained in the set of explanatory variables.\nPlease update model specification." %>%
       add_class("gbt"))
@@ -62,7 +62,7 @@ gbt <- function(
 
   vars <- c(rvar, evar)
 
-  if (radiant.data::is_empty(wts, "None")) {
+  if (is.empty(wts, "None")) {
     wts <- NULL
   } else if (is_string(wts)) {
     wtsname <- wts
@@ -70,11 +70,11 @@ gbt <- function(
   }
 
   df_name <- if (is_string(dataset)) dataset else deparse(substitute(dataset))
-  dataset <- get_data(dataset, vars, filt = data_filter, envir = envir) %>%
+  dataset <- get_data(dataset, vars, filt = data_filter, arr = arr, rows = rows, envir = envir) %>%
     mutate_if(is.Date, as.numeric)
   nr_obs <- nrow(dataset)
 
-  if (!radiant.data::is_empty(wts, "None")) {
+  if (!is.empty(wts, "None")) {
     if (exists("wtsname")) {
       wts <- dataset[[wtsname]]
       dataset <- select_at(dataset, .vars = base::setdiff(colnames(dataset), wtsname))
@@ -141,7 +141,7 @@ gbt <- function(
     gbt_input <- check_args("eval_metric", "auc")
     dty <- as.integer(dataset[[rvar]] == lev)
   } else {
-    gbt_input <- check_args("objective", "reg:linear")
+    gbt_input <- check_args("objective", "reg:squarederror")
     gbt_input <- check_args("eval_metric", "rmse")
     dty <- dataset[[rvar]]
   }
@@ -152,7 +152,7 @@ gbt <- function(
 
   ## based on https://stackoverflow.com/questions/14324096/setting-seed-locally-not-globally-in-r/14324316#14324316
   seed <- gsub("[^0-9]", "", seed)
-  if (!radiant.data::is_empty(seed)) {
+  if (!is.empty(seed)) {
     if (exists(".Random.seed")) {
       gseed <- .Random.seed
       on.exit(.Random.seed <<- gseed)
@@ -202,8 +202,9 @@ gbt <- function(
 #'
 #' @export
 summary.gbt <- function(object, prn = TRUE, ...) {
-
-  if (is.character(object)) return(object)
+  if (is.character(object)) {
+    return(object)
+  }
   cat("Gradient Boosted Trees (XGBoost)\n")
   if (object$type == "classification") {
     cat("Type                 : Classification")
@@ -211,8 +212,14 @@ summary.gbt <- function(object, prn = TRUE, ...) {
     cat("Type                 : Regression")
   }
   cat("\nData                 :", object$df_name)
-  if (!radiant.data::is_empty(object$data_filter)) {
+  if (!is.empty(object$data_filter)) {
     cat("\nFilter               :", gsub("\\n", "", object$data_filter))
+  }
+  if (!is.empty(object$arr)) {
+    cat("\nArrange              :", gsub("\\n", "", object$arr))
+  }
+  if (!is.empty(object$rows)) {
+    cat("\nSlice                :", gsub("\\n", "", object$rows))
   }
   cat("\nResponse variable    :", object$rvar)
   if (object$type == "classification") {
@@ -236,11 +243,11 @@ summary.gbt <- function(object, prn = TRUE, ...) {
       sub(" {2,}", " ", .)
     cat("Additional arguments :", extra_args, "\n")
   }
-  if (!radiant.data::is_empty(object$seed)) {
+  if (!is.empty(object$seed)) {
     cat("Seed                 :", object$seed, "\n")
   }
 
-  if (!radiant.data::is_empty(object$wts, "None") && (length(unique(object$wts)) > 2 || min(object$wts) >= 1)) {
+  if (!is.empty(object$wts, "None") && (length(unique(object$wts)) > 2 || min(object$wts) >= 1)) {
     cat("Nr obs               :", format_nr(sum(object$wts), dec = 0), "\n")
   } else {
     cat("Nr obs               :", format_nr(object$nr_obs, dec = 0), "\n")
@@ -259,9 +266,11 @@ summary.gbt <- function(object, prn = TRUE, ...) {
 #' @details See \url{https://radiant-rstats.github.io/docs/model/gbt.html} for an example in Radiant
 #'
 #' @param x Return value from \code{\link{gbt}}
-#' @param shiny Did the function call originate inside a shiny app
 #' @param plots Plots to produce for the specified Gradient Boosted Tree model. Use "" to avoid showing any plots (default). Options are ...
 #' @param nrobs Number of data points to show in scatter plots (-1 for all)
+#' @param incl Which variables to include in a coefficient plot or PDP plot
+#' @param incl_int Which interactions to investigate in PDP plots
+#' @param shiny Did the function call originate inside a shiny app
 #' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned.
 #'   This option can be used to customize plots (e.g., add a title, change x and y labels, etc.).
 #'   See examples and \url{https://ggplot2.tidyverse.org} for options.
@@ -276,25 +285,31 @@ summary.gbt <- function(object, prn = TRUE, ...) {
 #' @seealso \code{\link{predict.gbt}} for prediction
 #'
 #' @importFrom pdp partial
+#' @importFrom rlang .data
 #'
 #' @export
-plot.gbt <- function(
-  x, plots = "", nrobs = Inf,
-  shiny = FALSE, custom = FALSE, ...
-) {
-
-  if (is.character(x) || !inherits(x$model, "xgb.Booster")) return(x)
+plot.gbt <- function(x, plots = "", nrobs = Inf,
+                     incl = NULL, incl_int = NULL,
+                     shiny = FALSE, custom = FALSE, ...) {
+  if (is.character(x) || !inherits(x$model, "xgb.Booster")) {
+    return(x)
+  }
   plot_list <- list()
   ncol <- 1
 
   if (x$type == "regression" && "dashboard" %in% plots) {
     plot_list <- plot.regress(x, plots = "dashboard", lines = "line", nrobs = nrobs, custom = TRUE)
     ncol <- 2
-  } else if ("pdp" %in% plots) {
+  }
+
+  if ("pdp" %in% plots) {
     ncol <- 2
+    if (length(incl) == 0 && length(incl_int) == 0) {
+      return("Select one or more variables to generate Partial Dependence Plots")
+    }
     mod_dat <- x$model$model[, -1, drop = FALSE]
     dtx <- onehot(mod_dat)[, -1, drop = FALSE]
-    for (pn in colnames(mod_dat)) {
+    for (pn in incl) {
       if (is.factor(mod_dat[[pn]])) {
         fn <- paste0(pn, levels(mod_dat[[pn]]))[-1]
         effects <- rep(NA, length(fn))
@@ -304,7 +319,8 @@ plot.gbt <- function(
           dtx_cat <- dtx
           dtx_cat[, setdiff(fn, fn[i])] <- 0
           pdi <- pdp::partial(
-            x$model, pred.var = fn[i], plot = FALSE,
+            x$model,
+            pred.var = fn[i], plot = FALSE,
             prob = x$type == "classification", train = dtx_cat
           )
           effects[i] <- pdi[pdi[[1]] > 0, 2]
@@ -312,25 +328,65 @@ plot.gbt <- function(
         pgrid <- as.data.frame(matrix(0, ncol = nr))
         colnames(pgrid) <- fn
         base <- pdp::partial(
-          x$model, pred.var = fn,
+          x$model,
+          pred.var = fn,
           pred.grid = pgrid, plot = FALSE,
           prob = x$type == "classification", train = dtx
         )[1, "yhat"]
         pd <- data.frame(label = levels(mod_dat[[pn]]), yhat = c(base, effects)) %>%
           mutate(label = factor(label, levels = label))
         colnames(pd)[1] <- pn
-        plot_list[[pn]] <- ggplot(pd, aes_string(x = pn, y = "yhat")) +
+        plot_list[[pn]] <- ggplot(pd, aes(x = .data[[pn]], y = .data$yhat)) +
           geom_point() +
-          labs(y = "")
+          labs(y = NULL)
       } else {
         plot_list[[pn]] <- pdp::partial(
-          x$model, pred.var = pn, plot = TRUE, rug = TRUE,
+          x$model,
+          pred.var = pn, plot = TRUE, rug = TRUE,
           prob = x$type == "classification", plot.engine = "ggplot2",
-          smooth = TRUE, train = dtx
-        ) + labs(y = "")
+          train = dtx
+        ) + labs(y = NULL)
       }
     }
-  } else if ("vimp" %in% plots) {
+    for (pn_lab in incl_int) {
+      iint <- strsplit(pn_lab, ":")[[1]]
+      df <- mod_dat[, iint]
+      is_num <- sapply(df, is.numeric)
+      if (sum(is_num) == 2) {
+        # 2 numeric variables
+        cn <- colnames(df)
+        num_range1 <- df[[cn[1]]] %>%
+          (function(x) seq(min(x), max(x), length.out = 20)) %>%
+          paste0(collapse = ", ")
+        num_range2 <- df[[cn[2]]] %>%
+          (function(x) seq(min(x), max(x), length.out = 20)) %>%
+          paste0(collapse = ", ")
+        pred <- predict(x, pred_cmd = glue("{cn[1]} = c({num_range1}), {cn[2]} = c({num_range2})"))
+        plot_list[[pn_lab]] <- ggplot(pred, aes(x = .data[[cn[1]]], y = .data[[cn[2]]], fill = "Prediction")) +
+          geom_tile()
+      } else if (sum(is_num) == 0) {
+        # 2 categorical variables
+        cn <- colnames(df)
+        pred <- predict(x, pred_cmd = glue("{cn[1]} = levels({cn[1]}), {cn[2]} = levels({cn[2]})"))
+        plot_list[[pn_lab]] <- visualize(
+          pred,
+          xvar = cn[1], yvar = "Prediction", type = "line", color = cn[2], custom = TRUE
+        ) + labs(y = NULL)
+      } else if (sum(is_num) == 1) {
+        # 1 categorical and one numeric variable
+        cn <- colnames(df)
+        cn_fct <- cn[!is_num]
+        cn_num <- cn[is_num]
+        num_range <- df[[cn_num[1]]] %>%
+          (function(x) seq(min(x), max(x), length.out = 20)) %>%
+          paste0(collapse = ", ")
+        pred <- predict(x, pred_cmd = glue("{cn_num[1]} = c({num_range}), {cn_fct} = levels({cn_fct})"))
+        plot_list[[pn_lab]] <- plot(pred, xvar = cn_num[1], color = cn_fct, custom = TRUE)
+      }
+    }
+  }
+
+  if ("vimp" %in% plots) {
     imp <- x$model$importance
     mod_dat <- x$model$model
     vimp <- data.frame(
@@ -361,12 +417,39 @@ plot.gbt <- function(
       theme(axis.text.y = element_text(hjust = 0))
   }
 
+  if ("pred_plot" %in% plots) {
+    ncol <- 2
+    if (length(incl) > 0 | length(incl_int) > 0) {
+      plot_list <- pred_plot(x, plot_list, incl, incl_int, ...)
+    } else {
+      return("Select one or more variables to generate Prediction plots")
+    }
+  }
+
+  if ("vip" %in% plots) {
+    ncol <- 1
+    if (length(x$evar) < 2) {
+      message("Model must contain at least 2 explanatory variables (features). Permutation Importance plot cannot be generated")
+    } else {
+      vi_scores <- varimp(x)
+      plot_list[["vip"]] <-
+        visualize(vi_scores, yvar = "Importance", xvar = "Variable", type = "bar", custom = TRUE) +
+        labs(
+          title = "Permutation Importance",
+          x = NULL,
+          y = ifelse(x$type == "regression", "Importance (R-square decrease)", "Importance (AUC decrease)")
+        ) +
+        coord_flip() +
+        theme(axis.text.y = element_text(hjust = 0))
+    }
+  }
+
   if (length(plot_list) > 0) {
     if (custom) {
       if (length(plot_list) == 1) plot_list[[1]] else plot_list
     } else {
       patchwork::wrap_plots(plot_list, ncol = ncol) %>%
-        {if (shiny) . else print(.)}
+        (function(x) if (isTRUE(shiny)) x else print(x))
     }
   }
 }
@@ -392,12 +475,11 @@ plot.gbt <- function(
 #' @seealso \code{\link{summary.gbt}} to summarize results
 #'
 #' @export
-predict.gbt <- function(
-                        object, pred_data = NULL, pred_cmd = "",
-                        dec = 3, envir = parent.frame(), ...
-) {
-
-  if (is.character(object)) return(object)
+predict.gbt <- function(object, pred_data = NULL, pred_cmd = "",
+                        dec = 3, envir = parent.frame(), ...) {
+  if (is.character(object)) {
+    return(object)
+  }
 
   ## ensure you have a name for the prediction dataset
   if (is.data.frame(pred_data)) {
@@ -439,8 +521,9 @@ predict.gbt <- function(
 #' @param n Number of lines of prediction results to print. Use -1 to print all lines
 #'
 #' @export
-print.gbt.predict <- function(x, ..., n = 10)
+print.gbt.predict <- function(x, ..., n = 10) {
   print_predict_model(x, ..., n = n, header = "Gradiant Boosted Trees")
+}
 
 #' Cross-validation for Gradient Boosted Trees
 #'
@@ -496,13 +579,10 @@ print.gbt.predict <- function(x, ..., n = 10)
 #' }
 #'
 #' @export
-cv.gbt <- function(
-                   object, K = 5, repeats = 1, params = list(),
+cv.gbt <- function(object, K = 5, repeats = 1, params = list(),
                    nrounds = 500, early_stopping_rounds = 10, nthread = 12,
                    train = NULL, type = "classification",
-                   trace = TRUE, seed = 1234, maximize = NULL, fun, ...
-) {
-
+                   trace = TRUE, seed = 1234, maximize = NULL, fun, ...) {
   if (inherits(object, "gbt")) {
     dv <- object$rvar
     dataset <- object$model$model
@@ -512,15 +592,15 @@ cv.gbt <- function(
       objective <- "binary:logistic"
       dty <- as.integer(dataset[[dv]] == object$lev)
     } else {
-      objective <- "reg:linear"
+      objective <- "reg:squarederror"
       dty <- dataset[[dv]]
     }
     train <- xgboost::xgb.DMatrix(data = dtx, label = dty)
     params_base <- object$model$params
-    if (radiant.data::is_empty(params_base[["eval_metric"]])) {
+    if (is.empty(params_base[["eval_metric"]])) {
       params_base[["eval_metric"]] <- object$extra_args[["eval_metric"]]
     }
-    if (radiant.data::is_empty(params_base[["maximize"]])) {
+    if (is.empty(params_base[["maximize"]])) {
       params_base[["maximize"]] <- object$extra_args[["maximize"]]
     }
   } else if (!inherits(object, "xgb.Booster")) {
@@ -540,7 +620,7 @@ cv.gbt <- function(
     params_base[[n]] <- params[[n]]
   }
   params <- params_base
-  if (radiant.data::is_empty(maximize)) {
+  if (is.empty(maximize)) {
     maximize <- params$maximize
   }
 
@@ -621,7 +701,7 @@ cv.gbt <- function(
     out <- list()
     for (i in seq_len(nitt)) {
       cv_params <- tune_grid[i, ]
-      if (!radiant.data::is_empty(cv_params$nrounds)) {
+      if (!is.empty(cv_params$nrounds)) {
         nrounds <- cv_params$nrounds
         cv_params$nrounds <- NULL
       }

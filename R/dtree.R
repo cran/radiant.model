@@ -10,25 +10,15 @@
 #' @seealso \code{\link{summary.dtree}} to summarize results
 #' @seealso \code{\link{plot.dtree}} to plot results
 #'
-#' @importFrom radiant.data fix_smart
-#' @importFrom stringi stri_escape_unicode
+#' @importFrom stringi stri_trans_general
 #'
 #' @export
 dtree_parser <- function(yl) {
   if (is_string(yl)) yl <- unlist(strsplit(yl, "\n"))
 
   ## remove characters that may cause problems in shinyAce or DiagrammeR/mermaid.js
-  rv <- R.Version()
-  rv <- paste(rv$major, rv$minor, sep = ".")
-  if (rv >= "4.2.0") {
-    yl <- fix_smart(yl) %>%
-      stringi::stri_escape_unicode() %>%
-      gsub("\t", "    ", .)
-  } else {
-    yl <- fix_smart(yl) %>%
-      gsub("[\x80-\xFF]", "", .) %>%
-      gsub("\t", "    ", .)
-  }
+  yl <- stringi::stri_trans_general(yl, "latin-ascii") %>%
+    gsub("\t", "    ", .)
 
   ## container to collect errors
   err <- c()
@@ -164,6 +154,7 @@ dtree_parser <- function(yl) {
 #' @importFrom yaml yaml.load
 #' @importFrom stringr str_match
 #' @importFrom data.tree as.Node Clone isLeaf isNotLeaf Get
+#' @importFrom dplyr near
 #'
 #' @seealso \code{\link{summary.dtree}} to summarize results
 #' @seealso \code{\link{plot.dtree}} to plot results
@@ -409,7 +400,7 @@ dtree <- function(yl, opt = "max", base = character(0), envir = parent.frame()) 
   type_none <- ""
   prob_check <- ""
   calc_payoff <- function(x) {
-    if (radiant.data::is_empty(x$type)) {
+    if (is.empty(x$type)) {
       x$payoff <- 0
       x$type <- "NONE"
       type_none <<- "One or more nodes do not have a 'type'. Check and update the input file"
@@ -421,8 +412,8 @@ dtree <- function(yl, opt = "max", base = character(0), envir = parent.frame()) 
         prob_check <<- "One or more probabilities are smalller than 0.\nPlease correct the tree input ('p:') and re-calculate the tree"
       } else if (max(probs) > 1) {
         prob_check <<- "One or more probabilities are larger than 1.\nPlease correct the tree input ('p:') and re-calculate the tree"
-      } else if (round(sum(probs), 2) != 1) {
-        prob_check <<- "Probabilities for one (or more) chance nodes do not sum to 1.\nPlease correct the tree input ('p:') and re-calculate the tree"
+      } else if (!near(sum(probs), 1)) {
+        prob_check <<- glue("Probabilities for one (or more) chance nodes do not sum to 1 ({sum(probs)}).\nPlease correct the tree input ('p:') and re-calculate the tree")
       }
     } else if (x$type == "decision") {
       x$payoff <- get(opt)(sapply(x$children, decision_payoff))
@@ -570,7 +561,7 @@ summary.dtree <- function(object, input = TRUE, output = FALSE,
   ## initial setup
   if (object$type_none != "") {
     cat(paste0("\n\n**\n", object$type_none, "\n**\n\n"))
-  } else if (!radiant.data::is_empty(object$cost_check)) {
+  } else if (!is.empty(object$cost_check)) {
     cat(paste0("\n\n**\n", object$cost_check, "\n**\n\n"))
   } else {
     if (object$prob_check != "") {
@@ -765,6 +756,8 @@ plot.dtree <- function(x, symbol = "$", dec = 2, final = FALSE, orient = "LR", w
 #'     custom = FALSE
 #'   )
 #'
+#' @importFrom rlang .data
+#'
 #' @seealso \code{\link{dtree}} to generate the result
 #' @seealso \code{\link{plot.dtree}} to summarize results
 #' @seealso \code{\link{summary.dtree}} to summarize results
@@ -775,12 +768,12 @@ sensitivity.dtree <- function(object, vars = NULL, decs = NULL,
                               shiny = FALSE, custom = FALSE, ...) {
   yl <- object$yl
 
-  if (radiant.data::is_empty(vars)) {
+  if (is.empty(vars)) {
     return("** No variables were specified **")
-  } else if (radiant.data::is_empty(decs)) {
+  } else if (is.empty(decs)) {
     return("** No decisions were specified **")
   }
-  vars <- strsplit(vars, ";") %>%
+  vars <- strsplit(vars, ";\\s*") %>%
     unlist() %>%
     strsplit(" ")
 
@@ -818,9 +811,9 @@ sensitivity.dtree <- function(object, vars = NULL, decs = NULL,
   for (i in names(ret)) {
     dat <- gather(ret[[i]], "decisions", "payoffs", !!base::setdiff(names(ret[[i]]), "values"))
     plot_list[[i]] <-
-      ggplot(dat, aes_string(x = "values", y = "payoffs", color = "decisions")) +
+      ggplot(dat, aes(x = .data$values, y = .data$payoffs, color = .data$decisions)) +
       geom_line() +
-      geom_point(aes_string(shape = "decisions"), size = 2) +
+      geom_point(aes(shape = .data$decisions), size = 2) +
       labs(
         title = paste0("Sensitivity of decisions to changes in ", i),
         x = i

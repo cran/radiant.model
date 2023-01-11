@@ -25,6 +25,8 @@ crtree(
   margin = NA,
   check = "",
   data_filter = "",
+  arr = "",
+  rows = NULL,
   envir = parent.frame()
 )
 }
@@ -68,6 +70,10 @@ crtree(
 \item{check}{Optional estimation parameters (e.g., "standardize")}
 
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")}
+
+\item{arr}{Expression to arrange (sort) the data on (e.g., "color, desc(price)")}
+
+\item{rows}{Rows to select from the specified dataset}
 
 \item{envir}{Environment to extract data from}
 }

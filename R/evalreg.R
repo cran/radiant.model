@@ -7,6 +7,8 @@
 #' @param rvar Response variable
 #' @param train Use data from training ("Training"), test ("Test"), both ("Both"), or all data ("All") to evaluate model evalreg
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "training == 1")
+#' @param arr Expression to arrange (sort) the data on (e.g., "color, desc(price)")
+#' @param rows Rows to select from the specified dataset
 #' @param envir Environment to extract data from
 #'
 #' @return A list of results
@@ -20,29 +22,39 @@
 #'   str()
 #'
 #' @export
-evalreg <- function(
-  dataset, pred, rvar, train = "All", 
-  data_filter = "", envir = parent.frame()
-) {
-
-  if (!train %in% c("", "All") && radiant.data::is_empty(data_filter)) {
-    return("** Filter required. To set a filter go to Data > View and click\n   the filter checkbox **" %>% add_class("evalreg"))
+evalreg <- function(dataset, pred, rvar, train = "All",
+                    data_filter = "", arr = "", rows = NULL, envir = parent.frame()) {
+  if (!train %in% c("", "All") && is.empty(data_filter) && is.empty(rows)) {
+    return("**\nFilter or Slice required. To set a filter or slice go to\nData > View and click the filter checkbox\n**" %>% add_class("evalreg"))
   }
 
   # Add an option to exponentiate predictions in case of log regression
-
   df_name <- if (is_string(dataset)) dataset else deparse(substitute(dataset))
   dat_list <- list()
   vars <- c(pred, rvar)
   if (train == "Both") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, arr = arr, rows = rows, envir = envir)
+    dat_list[["Test"]] <- get_data(
+      dataset,
+      vars,
+      filt = ifelse(is.empty(data_filter), "", paste0("!(", data_filter, ")")),
+      arr = arr,
+      rows = ifelse(is.empty(rows), "", paste0("-(", rows, ")")),
+      envir = envir
+    )
   } else if (train == "Training") {
-    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, envir = envir)
+    dat_list[["Training"]] <- get_data(dataset, vars, filt = data_filter, arr = arr, rows = rows, envir = envir)
   } else if (train == "Test" | train == "Validation") {
-    dat_list[["Test"]] <- get_data(dataset, vars, filt = paste0("!(", data_filter, ")"), envir = envir)
+    dat_list[["Test"]] <- get_data(
+      dataset,
+      vars,
+      filt = ifelse(is.empty(data_filter), "", paste0("!(", data_filter, ")")),
+      arr = arr,
+      rows = ifelse(is.empty(rows), "", paste0("-(", rows, ")")),
+      envir = envir
+    )
   } else {
-    dat_list[["All"]] <- get_data(dataset, vars, filt = "", envir = envir)
+    dat_list[["All"]] <- get_data(dataset, vars, filt = "", rows = NULL, envir = envir)
   }
 
   pdat <- list()
@@ -57,7 +69,7 @@ evalreg <- function(
       Predictor = pred,
       n = nrow(dat[pred]),
       Rsq = cor(rv, select_at(dat, pred))^2 %>% .[1, ],
-      RMSE = summarise_at(dat, .vars = pred, .funs = ~ sqrt(mean((rv - .) ^ 2, na.rm = TRUE))) %>% unlist(),
+      RMSE = summarise_at(dat, .vars = pred, .funs = ~ sqrt(mean((rv - .)^2, na.rm = TRUE))) %>% unlist(),
       MAE = summarise_at(dat, .vars = pred, .funs = ~ mean(abs(rv - .), na.rm = TRUE)) %>% unlist(),
       stringsAsFactors = FALSE
     )
@@ -87,11 +99,19 @@ evalreg <- function(
 #'
 #' @export
 summary.evalreg <- function(object, dec = 3, ...) {
-  if (is.character(object)) return(object)
+  if (is.character(object)) {
+    return(object)
+  }
   cat("Evaluate predictions for regression models\n")
   cat("Data        :", object$df_name, "\n")
-  if (!radiant.data::is_empty(object$data_filter)) {
+  if (!is.empty(object$data_filter)) {
     cat("Filter      :", gsub("\\n", "", object$data_filter), "\n")
+  }
+  if (!is.empty(object$arr)) {
+    cat("Arrange     :", gsub("\\n", "", object$arr), "\n")
+  }
+  if (!is.empty(object$rows)) {
+    cat("Slice       :", gsub("\\n", "", object$rows), "\n")
   }
   cat("Results for :", object$train, "\n")
   cat("Predictors  :", paste0(object$pred, collapse = ", "), "\n")
@@ -118,10 +138,11 @@ summary.evalreg <- function(object, dec = 3, ...) {
 #'
 #' @export
 plot.evalreg <- function(x, vars = c("Rsq", "RMSE", "MAE"), ...) {
+  if (is.character(x) || is.null(x)) {
+    return(invisible())
+  }
 
-  if (is.character(x) || is.null(x)) return(invisible())
-
-  dat <- gather(x$dat, "Metric", "Value", !! vars, factor_key = TRUE) %>%
+  dat <- gather(x$dat, "Metric", "Value", !!vars, factor_key = TRUE) %>%
     mutate(Predictor = factor(Predictor, levels = unique(Predictor)))
 
   ## what data was used in evaluation? All, Training, Test, or Both

@@ -12,6 +12,8 @@
 #' @param form Optional formula to use instead of rvar, evar, and int
 #' @param ci_type To use the profile-likelihood (rather than Wald) for confidence intervals use "profile". For datasets with more than 5,000 rows the Wald method will be used, unless "profile" is explicitly set
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param arr Expression to arrange (sort) the data on (e.g., "color, desc(price)")
+#' @param rows Rows to select from the specified dataset
 #' @param envir Environment to extract data from
 #'
 #' @return A list with all variables defined in logistic as an object of class logistic
@@ -27,12 +29,9 @@
 #' @importFrom sandwich vcovHC
 #'
 #' @export
-logistic <- function(
-                     dataset, rvar, evar, lev = "", int = "",
+logistic <- function(dataset, rvar, evar, lev = "", int = "",
                      wts = "None", check = "", form, ci_type,
-                     data_filter = "", envir = parent.frame()
-) {
-
+                     data_filter = "", arr = "", rows = NULL, envir = parent.frame()) {
   if (!missing(form)) {
     form <- as.formula(format(form))
     paste0(format(form), collapse = "")
@@ -49,7 +48,7 @@ logistic <- function(
 
   vars <- c(rvar, evar)
 
-  if (radiant.data::is_empty(wts, "None")) {
+  if (is.empty(wts, "None")) {
     wts <- NULL
   } else if (is_string(wts)) {
     wtsname <- wts
@@ -58,10 +57,10 @@ logistic <- function(
 
   df_name <- if (is_string(dataset)) dataset else deparse(substitute(dataset))
   if (any(evar == ".")) {
-    dataset <- get_data(dataset, "", filt = data_filter, envir = envir)
+    dataset <- get_data(dataset, "", filt = data_filter, arr = arr, rows = rows, envir = envir)
     evar <- setdiff(colnames(dataset), rvar)
   } else {
-    dataset <- get_data(dataset, vars, filt = data_filter, envir = envir)
+    dataset <- get_data(dataset, vars, filt = data_filter, arr = arr, rows = rows, envir = envir)
   }
 
   if (missing(ci_type)) {
@@ -73,7 +72,7 @@ logistic <- function(
     }
   }
 
-  if (!radiant.data::is_empty(wts)) {
+  if (!is.empty(wts)) {
     if (exists("wtsname")) {
       wts <- dataset[[wtsname]]
       dataset <- select_at(dataset, .vars = base::setdiff(colnames(dataset), wtsname))
@@ -102,7 +101,10 @@ logistic <- function(
     if (is.factor(rv)) {
       lev <- levels(rv)[1]
     } else {
-      lev <- as.character(rv) %>% as.factor() %>% levels() %>% .[1]
+      lev <- as.character(rv) %>%
+        as.factor() %>%
+        levels() %>%
+        .[1]
     }
   }
 
@@ -114,11 +116,12 @@ logistic <- function(
   }
 
   vars <- ""
-  var_check(evar, colnames(dataset)[-1], int) %>% {
-    vars <<- .$vars
-    evar <<- .$ev
-    int <<- .$intv
-  }
+  var_check(evar, colnames(dataset)[-1], int) %>%
+    {
+      vars <<- .$vars
+      evar <<- .$ev
+      int <<- .$intv
+    }
 
   ## add minmax attributes to data
   mmx <- minmax(dataset)
@@ -160,7 +163,9 @@ logistic <- function(
     attr(model$model, "radiant_sf") <- attr(dataset, "radiant_sf")
   }
 
-  coeff <- tidy(model) %>% na.omit() %>% as.data.frame()
+  coeff <- tidy(model) %>%
+    na.omit() %>%
+    as.data.frame()
   colnames(coeff) <- c("label", "coefficient", "std.error", "z.value", "p.value")
   hasLevs <- sapply(select(dataset, -1), function(x) is.factor(x) || is.logical(x) || is.character(x))
   if (sum(hasLevs) > 0) {
@@ -210,7 +215,9 @@ logistic <- function(
 #' summary(result, test_var = "pclass")
 #' res <- logistic(titanic, "survived", c("pclass", "sex"), int = "pclass:sex", lev = "Yes")
 #' summary(res, sum_check = c("vif", "confint", "odds"))
-#' titanic %>% logistic("survived", c("pclass", "sex", "age"), lev = "Yes") %>% summary("vif")
+#' titanic %>%
+#'   logistic("survived", c("pclass", "sex", "age"), lev = "Yes") %>%
+#'   summary("vif")
 #' @seealso \code{\link{logistic}} to generate the results
 #' @seealso \code{\link{plot.logistic}} to plot the results
 #' @seealso \code{\link{predict.logistic}} to generate predictions
@@ -219,13 +226,14 @@ logistic <- function(
 #' @importFrom car vif linearHypothesis
 #'
 #' @export
-summary.logistic <- function(
-                             object, sum_check = "", conf_lev = .95,
-                             test_var = "", dec = 3, ...
-) {
-
-  if (is.character(object)) return(object)
-  if (class(object$model)[1] != "glm") return(object)
+summary.logistic <- function(object, sum_check = "", conf_lev = .95,
+                             test_var = "", dec = 3, ...) {
+  if (is.character(object)) {
+    return(object)
+  }
+  if (class(object$model)[1] != "glm") {
+    return(object)
+  }
 
   if (any(grepl("stepwise", object$check))) {
     step_type <- if ("stepwise-backward" %in% object$check) {
@@ -242,8 +250,14 @@ summary.logistic <- function(
 
   cat("Logistic regression (GLM)")
   cat("\nData                 :", object$df_name)
-  if (!radiant.data::is_empty(object$data_filter)) {
+  if (!is.empty(object$data_filter)) {
     cat("\nFilter               :", gsub("\\n", "", object$data_filter))
+  }
+  if (!is.empty(object$arr)) {
+    cat("\nArrange              :", gsub("\\n", "", object$arr))
+  }
+  if (!is.empty(object$rows)) {
+    cat("\nSlice                :", gsub("\\n", "", object$rows))
   }
   cat("\nResponse variable    :", object$rvar)
   cat("\nLevel                :", object$lev, "in", object$rvar)
@@ -270,18 +284,31 @@ summary.logistic <- function(
   coeff$label %<>% format(justify = "left")
   p.small <- coeff$p.value < .001
   coeff[, c(2, 4:7)] %<>% format_df(dec)
-  coeff[["OR%"]] %<>% format_nr(perc = TRUE, dec = dec - 2, na.rm=FALSE)
+  coeff[["OR%"]] %<>% format_nr(perc = TRUE, dec = dec - 2, na.rm = FALSE)
   coeff$p.value[p.small] <- "< .001"
-  dplyr::rename(coeff, `  ` = "label", ` ` = "sig_star") %>% {.$OR[1] <- .$`OR%`[1] <- ""; .} %>%
+  dplyr::rename(coeff, `  ` = "label", ` ` = "sig_star") %>%
+    (function(x) {
+      x$OR[1] <- x$`OR%`[1] <- ""
+      x
+    }) %>%
     print(row.names = FALSE)
   cat("\nSignif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1\n")
 
   logit_fit <- glance(object$model)
 
   ## pseudo R2 (likelihood ratio) - http://en.wikipedia.org/wiki/Logistic_Model
-  logit_fit %<>% mutate(r2 = (null.deviance - deviance) / null.deviance) %>%
+  logit_fit$rnk <- object$model$rank
+  logit_fit <- logit_fit %>%
+    mutate(
+      llnull = null.deviance / -2,
+      llfull = deviance / -2,
+      r2 = 1 - llfull / llnull,
+      r2_adj = 1 - (llfull - (rnk - 1)) / llnull,
+      auc = auc(object$model$fitted.values, object$model$model[[object$rvar]])
+    ) %>%
     round(dec)
-  if (!radiant.data::is_empty(object$wts, "None") && (length(unique(object$wts)) > 2 || min(object$wts) >= 1)) {
+
+  if (!is.empty(object$wts, "None") && (length(unique(object$wts)) > 2 || min(object$wts) >= 1)) {
     nobs <- sum(object$wts)
     logit_fit$BIC <- round(-2 * logit_fit$logLik + ln(nobs) * with(logit_fit, 1 + df.null - df.residual), dec)
   } else {
@@ -289,11 +316,11 @@ summary.logistic <- function(
   }
 
   ## chi-squared test of overall model fit (p-value) - http://www.ats.ucla.edu/stat/r/dae/logit.htm
-  chi_pval <- with(object$model, pchisq(null.deviance - deviance, df.null - df.residual, lower.tail = FALSE))
-  chi_pval %<>% {if (. < .001) "< .001" else round(., dec)}
+  chi_pval <- with(object$model, pchisq(null.deviance - deviance, df.null - df.residual, lower.tail = FALSE)) %>%
+    (function(x) if (x < .001) "< .001" else round(x, dec))
 
-  cat("\nPseudo R-squared:", logit_fit$r2)
-  cat(paste0("\nLog-likelihood: ", logit_fit$logLik, ", AIC: ", logit_fit$AIC, ", BIC: ", logit_fit$BIC))
+  cat(paste0("\nPseudo R-squared:", logit_fit$r2, ", Adjusted Pseudo R-squared:", logit_fit$r2_adj))
+  cat(paste0("\nAUC: ", logit_fit$auc, ", Log-likelihood: ", logit_fit$logLik, ", AIC: ", logit_fit$AIC, ", BIC: ", logit_fit$BIC))
   cat(paste0(
     "\nChi-squared: ", with(logit_fit, null.deviance - deviance) %>% round(dec), " df(",
     with(logit_fit, df.null - df.residual), "), p.value ", chi_pval
@@ -312,11 +339,15 @@ summary.logistic <- function(
       if (length(attributes(object$model$terms)$term.labels) > 1) {
         cat("Variance Inflation Factors\n")
         car::vif(object$model) %>%
-          {if (is.null(dim(.))) . else .[, "GVIF"]} %>% ## needed when factors are included
+          {
+            if (is.null(dim(.))) . else .[, "GVIF"]
+          } %>% ## needed when factors are included
           data.frame(VIF = ., Rsq = 1 - 1 / ., stringsAsFactors = FALSE) %>%
           .[order(.$VIF, decreasing = TRUE), ] %>% ## not using arrange to keep rownames
           round(dec) %>%
-          {if (nrow(.) < 8) t(.) else .} %>%
+          {
+            if (nrow(.) < 8) t(.) else .
+          } %>%
           print()
       } else {
         cat("Insufficient number of explanatory variables to calculate\nmulticollinearity diagnostics (VIF)\n")
@@ -347,7 +378,9 @@ summary.logistic <- function(
 
       if ("confint" %in% sum_check) {
         ci_tab %T>%
-          {.$`+/-` <- (.$High - .$coefficient)} %>%
+          {
+            .$`+/-` <- (.$High - .$coefficient)
+          } %>%
           format_df(dec) %>%
           set_colnames(c("coefficient", ci_perc[1], ci_perc[2], "+/-")) %>%
           set_rownames(object$coeff$label) %>%
@@ -371,7 +404,7 @@ summary.logistic <- function(
     }
   }
 
-  if (!radiant.data::is_empty(test_var)) {
+  if (!is.empty(test_var)) {
     if (any(grepl("stepwise", object$check))) {
       cat("Model comparisons are not conducted when Stepwise has been selected.\n")
     } else {
@@ -394,7 +427,7 @@ summary.logistic <- function(
       logit_sub_test <- anova(logit_sub, object$model, test = "Chi")
 
       matchCf <- function(clist, vlist) {
-        matcher <- function(vl, cn)
+        matcher <- function(vl, cn) {
           if (grepl(":", vl)) {
             strsplit(vl, ":") %>%
               unlist() %>%
@@ -409,6 +442,7 @@ summary.logistic <- function(
             }
             mf
           }
+        }
 
         cn <- names(clist)
         sapply(vlist, matcher, cn) %>% unname()
@@ -450,6 +484,7 @@ summary.logistic <- function(
 #' @param intercept Include the intercept in the coefficient plot (TRUE or FALSE). FALSE is the default
 #' @param incl Which variables to include in a coefficient plot
 #' @param excl Which variables to exclude in a coefficient plot
+#' @param incl_int Which interactions to investigate in PDP plots
 #' @param nrobs Number of data points to show in scatter plots (-1 for all)
 #' @param shiny Did the function call originate inside a shiny app
 #' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{https://ggplot2.tidyverse.org} for options.
@@ -464,16 +499,18 @@ summary.logistic <- function(
 #' @seealso \code{\link{plot.model.predict}} to plot prediction output
 #'
 #' @importFrom broom augment
+#' @importFrom rlang .data
 #'
 #' @export
-plot.logistic <- function(
-  x, plots = "coef", conf_lev = .95,
-  intercept = FALSE, incl = NULL, excl = NULL,
-  nrobs = -1, shiny = FALSE, custom = FALSE, ...
-) {
-
-  if (is.character(x) || !inherits(x$model, "glm")) return(x)
-  if (radiant.data::is_empty(plots[1])) return("Please select a logistic regression plot from the drop-down menu")
+plot.logistic <- function(x, plots = "coef", conf_lev = .95,
+                          intercept = FALSE, incl = NULL, excl = NULL, incl_int = NULL,
+                          nrobs = -1, shiny = FALSE, custom = FALSE, ...) {
+  if (is.character(x) || !inherits(x$model, "glm")) {
+    return(x)
+  }
+  if (is.empty(plots[1])) {
+    return("Please select a logistic regression plot from the drop-down menu")
+  }
 
   if ("(weights)" %in% colnames(x$model$model) &&
     min(x$model$model[["(weights)"]]) == 0) {
@@ -485,7 +522,8 @@ plot.logistic <- function(
   }
 
   ## adjustment in case max > 1 (e.g., values are 1 and 2)
-  model$.actual <- as_integer(x$rv) %>% {. - max(.) + 1}
+  model$.actual <- as_integer(x$rv) %>%
+    (function(x) x - max(x) + 1)
 
   rvar <- x$rvar
   evar <- intersect(x$evar, colnames(model))
@@ -497,13 +535,16 @@ plot.logistic <- function(
   model[[rvar]] <- x$rv
 
   if ("dist" %in% plots) {
-    for (i in vars)
+    for (i in vars) {
       plot_list[[paste("dist_", i)]] <- select_at(model, .vars = i) %>%
         visualize(xvar = i, bins = 10, custom = TRUE)
+    }
   }
 
   if ("coef" %in% plots) {
-    if (nrow(x$coeff) == 1 && !intercept) return("** Model contains only an intercept **")
+    if (nrow(x$coeff) == 1 && !intercept) {
+      return("** Model contains only an intercept **")
+    }
 
     yl <- {
       if (sum(c("standardize", "center") %in% x$check) == 2) {
@@ -533,7 +574,9 @@ plot.logistic <- function(
       set_colnames(c("Low", "High")) %>%
       cbind(select(x$coeff, 2), .) %>%
       set_rownames(x$coeff$label) %>%
-      {if (!intercept) .[-1, ] else .} %>%
+      {
+        if (!intercept) .[-1, ] else .
+      } %>%
       mutate(variable = factor(rownames(.), levels = rownames(.)))
 
     # addressing issues with extremely high upper bounds
@@ -554,7 +597,7 @@ plot.logistic <- function(
     coef_df <- droplevels(coef_df)
 
     plot_list[["coef"]] <- ggplot(coef_df) +
-      geom_pointrange(aes_string(x = "variable", y = "OR", ymin = "Low", ymax = "High")) +
+      geom_pointrange(aes(x = .data$variable, y = .data$OR, ymin = .data$Low, ymax = .data$High)) +
       geom_hline(yintercept = 1, linetype = "dotdash", color = "blue") +
       labs(y = yl, x = "") +
       ## can't use coord_trans together with coord_flip
@@ -572,7 +615,7 @@ plot.logistic <- function(
     }
     for (i in evar) {
       if ("factor" %in% class(model[[i]])) {
-        plot_list[[paste0("scatter_", i)]] <- ggplot(model, aes_string(x = i, fill = rvar)) +
+        plot_list[[paste0("scatter_", i)]] <- ggplot(model, aes(x = .data[[i]], fill = .data[[rvar]])) +
           geom_bar(position = "fill", alpha = 0.5) +
           labs(y = "")
       } else {
@@ -606,7 +649,7 @@ plot.logistic <- function(
 
     plot_list[["fit"]] <-
       visualize(model, xvar = ".fittedbin", yvar = ".actual", type = "bar", custom = TRUE) +
-      geom_line(data = df, aes_string(y = "Probability"), color = "blue", size = 1) +
+      geom_line(data = df, aes(y = .data$Probability), color = "blue", linewidth = 1) +
       ylim(0, 1) +
       labs(title = "Actual vs Fitted values (binned)", x = "Predicted probability bins", y = "Probability")
   }
@@ -632,11 +675,12 @@ plot.logistic <- function(
       arrange(index)
 
     mod <- mutate(mod, .std.resid = ifelse(abs(.std.resid) < 1 & is.na(index.max), NA, .std.resid))
-    lim <- max(abs(mod$.std.resid), na.rm = TRUE) %>% {c(min(-4, -.), max(4, .))}
+    lim <- max(abs(mod$.std.resid), na.rm = TRUE) %>%
+      (function(x) c(min(-4, -x), max(4, x)))
     plot_list[["influence"]] <- ggplot(mod, aes(index, .std.resid)) +
       geom_point(aes(size = .cooksd), alpha = 0.5) +
       ggrepel::geom_text_repel(aes(label = index.max)) +
-      geom_hline(yintercept = c(-1, -3, 1, 3), linetype = "longdash", size = 0.25) +
+      geom_hline(yintercept = c(-1, -3, 1, 3), linetype = "longdash", linewidth = 0.25) +
       scale_y_continuous(breaks = -4:4, limits = lim) +
       labs(
         title = "Influential observations",
@@ -644,6 +688,42 @@ plot.logistic <- function(
         y = "Standardized residuals",
         size = "cooksd"
       )
+  }
+
+  if ("pred_plot" %in% plots) {
+    ncol <- 2
+    if (length(incl) > 0 | length(incl_int) > 0) {
+      plot_list <- pred_plot(x, plot_list, incl, incl_int, ...)
+    } else {
+      return("Select one or more variables to generate Prediction plots")
+    }
+  }
+
+  if ("pdp" %in% plots) {
+    nrCol <- 2
+    if (length(incl) > 0 | length(incl_int) > 0) {
+      plot_list <- pdp_plot(x, plot_list, incl, incl_int, ...)
+    } else {
+      return("Select one or more variables to generate Partial Dependence Plots")
+    }
+  }
+
+  if ("vip" %in% plots) {
+    nrCol <- 1
+    if (length(evar) < 2) {
+      message("Model must contain at least 2 explanatory variables (features). Permutation Importance plot cannot be generated")
+    } else {
+      vi_scores <- varimp(x)
+      plot_list[["vip"]] <-
+        visualize(vi_scores, yvar = "Importance", xvar = "Variable", type = "bar", custom = TRUE) +
+        labs(
+          title = "Permutation Importance",
+          x = NULL,
+          y = "Importance (AUC decrease)"
+        ) +
+        coord_flip() +
+        theme(axis.text.y = element_text(hjust = 0))
+    }
   }
 
   if ("linearity" %in% plots) {
@@ -669,7 +749,7 @@ plot.logistic <- function(
       if (length(plot_list) == 1) plot_list[[1]] else plot_list
     } else {
       patchwork::wrap_plots(plot_list, ncol = nrCol) %>%
-        {if (shiny) . else print(.)}
+        (function(x) if (isTRUE(shiny)) x else print(x))
     }
   }
 }
@@ -701,19 +781,19 @@ plot.logistic <- function(
 #' @seealso \code{\link{plot.model.predict}} to plot prediction output
 #'
 #' @export
-predict.logistic <- function(
-                             object, pred_data = NULL, pred_cmd = "",
+predict.logistic <- function(object, pred_data = NULL, pred_cmd = "",
                              conf_lev = 0.95, se = TRUE, interval = "confidence",
-                             dec = 3, envir = parent.frame(), ...
-) {
-
-  if (is.character(object)) return(object)
+                             dec = 3, envir = parent.frame(), ...) {
+  if (is.character(object)) {
+    return(object)
+  }
   if (isTRUE(se)) {
     if (isTRUE(interval == "none")) {
       se <- FALSE
     } else if ("center" %in% object$check || "standardize" %in% object$check) {
       message("Standard error calculations not supported when coefficients are centered or standardized")
-      se <- FALSE; interval <- "none"
+      se <- FALSE
+      interval <- "none"
     }
   } else {
     interval <- "none"
@@ -740,7 +820,6 @@ predict.logistic <- function(
       )
 
     if (!inherits(pred_val, "try-error")) {
-
       if (se) {
         ## based on https://www.fromthebottomoftheheap.net/2017/05/01/glm-prediction-intervals-i/
         ilink <- family(model)$linkinv
@@ -773,8 +852,9 @@ predict.logistic <- function(
 #' @param n Number of lines of prediction results to print. Use -1 to print all lines
 #'
 #' @export
-print.logistic.predict <- function(x, ..., n = 10)
+print.logistic.predict <- function(x, ..., n = 10) {
   print_predict_model(x, ..., n = n, header = "Logistic regression (GLM)")
+}
 
 #' Confidence interval for robust estimators
 #'
@@ -789,9 +869,7 @@ print.logistic.predict <- function(x, ..., n = 10)
 #' @importFrom sandwich vcovHC
 #'
 #' @export
-confint_robust <- function(
-                           object, level = 0.95, dist = "norm", vcov = NULL, ...
-) {
+confint_robust <- function(object, level = 0.95, dist = "norm", vcov = NULL, ...) {
   fac <- ((1 - level) / 2) %>%
     c(., 1 - .)
 
@@ -816,7 +894,9 @@ confint_robust <- function(
 #' @export
 minmax <- function(dataset) {
   isNum <- sapply(dataset, is.numeric)
-  if (sum(isNum) == 0) return(dataset)
+  if (sum(isNum) == 0) {
+    return(dataset)
+  }
   cn <- names(isNum)[isNum]
 
   mn <- summarise_at(dataset, .vars = cn, .funs = ~ min(., na.rm = TRUE))
@@ -837,7 +917,8 @@ minmax <- function(dataset) {
 #' @examples
 #'
 #' regress(
-#'   diamonds, rvar = "price", evar = c("carat", "clarity", "color", "x"),
+#'   diamonds,
+#'   rvar = "price", evar = c("carat", "clarity", "color", "x"),
 #'   int = c("carat:clarity", "clarity:color", "I(x^2)"), check = "standardize"
 #' ) %>%
 #'   write.coeff(sort = TRUE) %>%
@@ -849,9 +930,7 @@ minmax <- function(dataset) {
 #' @importFrom stats model.frame
 #'
 #' @export
-write.coeff <- function(
-                        object, file = "", sort = FALSE, intercept = TRUE
-) {
+write.coeff <- function(object, file = "", sort = FALSE, intercept = TRUE) {
   if (inherits(object, "regress")) {
     mod_class <- "regress"
   } else if (inherits(object, "logistic")) {
@@ -963,13 +1042,15 @@ write.coeff <- function(
 
   object$importance[intc] <- 0
 
-  if (sort)
+  if (sort) {
     object[-1, ] <- arrange(object[-1, ], desc(.data$importance))
+  }
 
-  if (!intercept)
-    object <- slice(object, -1) ## slice will ensure a tibble / data.frame is returned
+  if (!intercept) {
+    object <- slice(object, -1)
+  } ## slice will ensure a tibble / data.frame is returned
 
-  if (!radiant.data::is_empty(file)) {
+  if (!is.empty(file)) {
     sshhr(write.table(object, sep = ",", append = TRUE, file = file, row.names = FALSE))
   } else {
     object

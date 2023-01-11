@@ -4,7 +4,17 @@
 \alias{crs}
 \title{Collaborative Filtering}
 \usage{
-crs(dataset, id, prod, pred, rate, data_filter = "", envir = parent.frame())
+crs(
+  dataset,
+  id,
+  prod,
+  pred,
+  rate,
+  data_filter = "",
+  arr = "",
+  rows = NULL,
+  envir = parent.frame()
+)
 }
 \arguments{
 \item{dataset}{Dataset}
@@ -19,6 +29,10 @@ crs(dataset, id, prod, pred, rate, data_filter = "", envir = parent.frame())
 
 \item{data_filter}{Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "training == 1")}
 
+\item{arr}{Expression to arrange (sort) the data on (e.g., "color, desc(price)")}
+
+\item{rows}{Rows to select from the specified dataset}
+
 \item{envir}{Environment to extract data from}
 }
 \value{
@@ -31,8 +45,10 @@ Collaborative Filtering
 See \url{https://radiant-rstats.github.io/docs/model/crs.html} for an example in Radiant
 }
 \examples{
-crs(ratings, id = "Users", prod = "Movies", pred = c("M6", "M7", "M8", "M9", "M10"),
-  rate = "Ratings", data_filter = "training == 1") \%>\% str()
+crs(ratings,
+  id = "Users", prod = "Movies", pred = c("M6", "M7", "M8", "M9", "M10"),
+  rate = "Ratings", data_filter = "training == 1"
+) \%>\% str()
 }
 \seealso{
 \code{\link{summary.crs}} to summarize results

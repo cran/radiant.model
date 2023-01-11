@@ -1,3 +1,16 @@
+# radiant.model 1.5.0
+
+* Improvements to screenshot feature. Navigation bar is omitted and the image is adjusted to the length of the UI.
+* Removed all references to `aes_string` which is being deprecated in ggplot
+* Replaced "size" argument, deprecated in ggplot2, with "linewidth"
+* Added functionality to create pdp plots, prediction plots (pred_plot), and permutation importance plots (varimp) for most available models. Prediction plots are convenient to quickly check for possible interactions which would take longer to generate using PDP
+* Added AUC and Adjusted Pseudo R-squared to model fit metrics for logistic regression
+
+# radiant.model 1.4.10
+
+* Fix when parsing commands using strsplit on ';'
+* Use `dplyr::near` to avoid issues with user-provided probabilities not summing to 1 due to machine tolerance
+
 # radiant.model 1.4.8
 
 * gsub("[\x80-\xFF]", "", text) is no longer valid in R 4.2.0 and above. Non-asci symbols will now be escaped using stringi

@@ -1,9 +1,11 @@
 nn_plots <- c(
   "None" = "none",
   "Network" = "net",
+  "Permutation Importance" = "vip",
+  "Prediction plots" = "pred_plot",
+  "Partial Dependence" = "pdp",
   "Olden" = "olden",
   "Garson" = "garson",
-  "Partial Dependence" = "pdp",
   "Dashboard" = "dashboard"
 )
 
@@ -14,6 +16,8 @@ nn_args <- as.list(formals(nn))
 nn_inputs <- reactive({
   ## loop needed because reactive values don't allow single bracket indexing
   nn_args$data_filter <- if (input$show_filter) input$data_filter else ""
+  nn_args$arr <- if (input$show_filter) input$data_arrange else ""
+  nn_args$rows <- if (input$show_filter) input$data_rows else ""
   nn_args$dataset <- input$dataset
   for (i in r_drop(names(nn_args))) {
     nn_args[[i]] <- input[[paste0("nn_", i)]]
@@ -50,6 +54,21 @@ nn_pred_inputs <- reactive({
   nn_pred_args
 })
 
+nn_plot_args <- as.list(if (exists("plot.nn")) {
+  formals(plot.nn)
+} else {
+  formals(radiant.model:::plot.nn)
+})
+
+## list of function inputs selected by user
+nn_plot_inputs <- reactive({
+  ## loop needed because reactive values don't allow single bracket indexing
+  for (i in names(nn_plot_args)) {
+    nn_plot_args[[i]] <- input[[paste0("nn_", i)]]
+  }
+  nn_plot_args
+})
+
 nn_pred_plot_args <- as.list(if (exists("plot.model.predict")) {
   formals(plot.model.predict)
 } else {
@@ -78,9 +97,9 @@ output$ui_nn_rvar <- renderUI({
   })
 
   init <- if (input$nn_type == "classification") {
-    if (radiant.data::is_empty(input$logit_rvar)) isolate(input$nn_rvar) else input$logit_rvar
+    if (is.empty(input$logit_rvar)) isolate(input$nn_rvar) else input$logit_rvar
   } else {
-    if (radiant.data::is_empty(input$reg_rvar)) isolate(input$nn_rvar) else input$reg_rvar
+    if (is.empty(input$reg_rvar)) isolate(input$nn_rvar) else input$reg_rvar
   }
 
   selectInput(
@@ -99,7 +118,7 @@ output$ui_nn_lev <- renderUI({
     as_factor() %>%
     levels()
 
-  init <- if (radiant.data::is_empty(input$logit_lev)) isolate(input$nn_lev) else input$logit_lev
+  init <- if (is.empty(input$logit_lev)) isolate(input$nn_lev) else input$logit_lev
   selectInput(
     inputId = "nn_lev", label = "Choose level:",
     choices = levs,
@@ -118,10 +137,10 @@ output$ui_nn_evar <- renderUI({
 
   init <- if (input$nn_type == "classification") {
     # input$logit_evar
-    if (radiant.data::is_empty(input$logit_evar)) isolate(input$nn_evar) else input$logit_evar
+    if (is.empty(input$logit_evar)) isolate(input$nn_evar) else input$logit_evar
   } else {
     # input$reg_evar
-    if (radiant.data::is_empty(input$reg_evar)) isolate(input$nn_evar) else input$reg_evar
+    if (is.empty(input$reg_evar)) isolate(input$nn_evar) else input$reg_evar
   }
 
   selectInput(
@@ -134,6 +153,10 @@ output$ui_nn_evar <- renderUI({
     selectize = FALSE
   )
 })
+
+# function calls generate UI elements
+output_incl("nn")
+output_incl_int("nn")
 
 output$ui_nn_wts <- renderUI({
   isNum <- .get_class() %in% c("integer", "numeric", "ts")
@@ -158,7 +181,7 @@ output$ui_nn_wts <- renderUI({
 output$ui_nn_store_pred_name <- renderUI({
   init <- state_init("nn_store_pred_name", "pred_nn") %>%
     sub("\\d{1,}$", "", .) %>%
-    paste0(., ifelse(radiant.data::is_empty(input$nn_size), "", input$nn_size))
+    paste0(., ifelse(is.empty(input$nn_size), "", input$nn_size))
   textInput(
     "nn_store_pred_name",
     "Store predictions:",
@@ -300,6 +323,11 @@ output$ui_nn <- renderUI({
         condition = "input.tabs_nn == 'Plot'",
         uiOutput("ui_nn_plots"),
         conditionalPanel(
+          condition = "input.nn_plots == 'pdp' | input.nn_plots == 'pred_plot'",
+          uiOutput("ui_nn_incl"),
+          uiOutput("ui_nn_incl_int")
+        ),
+        conditionalPanel(
           condition = "input.nn_plots == 'dashboard'",
           uiOutput("ui_nn_nrobs")
         )
@@ -324,36 +352,38 @@ nn_plot <- reactive({
   if (nn_available() != "available") {
     return()
   }
-  if (radiant.data::is_empty(input$nn_plots, "none")) {
+  if (is.empty(input$nn_plots, "none")) {
     return()
   }
   res <- .nn()
   if (is.character(res)) {
     return()
   }
+  plot_width <- 650
   if ("dashboard" %in% input$nn_plots) {
     plot_height <- 750
-  } else if ("pdp" %in% input$nn_plots) {
-    plot_height <- max(500, ceiling(length(res$evar) / 2) * 250)
+  } else if (input$nn_plots %in% c("pdp", "pred_plot")) {
+    nr_vars <- length(input$nn_incl) + length(input$nn_incl_int)
+    plot_height <- max(250, ceiling(nr_vars / 2) * 250)
+    if (length(input$nn_incl_int) > 0) {
+      plot_width <- plot_width + min(2, length(input$nn_incl_int)) * 90
+    }
   } else {
     mlt <- if ("net" %in% input$nn_plots) 45 else 30
     plot_height <- max(500, length(res$model$coefnames) * mlt)
   }
-  list(plot_width = 650, plot_height = plot_height)
+
+  list(plot_width = plot_width, plot_height = plot_height)
 })
 
 nn_plot_width <- function() {
   nn_plot() %>%
-    {
-      if (is.list(.)) .$plot_width else 650
-    }
+    (function(x) if (is.list(x)) x$plot_width else 650)
 }
 
 nn_plot_height <- function() {
   nn_plot() %>%
-    {
-      if (is.list(.)) .$plot_height else 500
-    }
+    (function(x) if (is.list(x)) x$plot_height else 500)
 }
 
 nn_pred_plot_height <- function() {
@@ -455,14 +485,14 @@ nn_available <- reactive({
   if (nn_available() != "available") {
     return(nn_available())
   }
-  if (radiant.data::is_empty(input$nn_predict, "none")) {
+  if (is.empty(input$nn_predict, "none")) {
     return("** Select prediction input **")
   }
 
-  if ((input$nn_predict == "data" || input$nn_predict == "datacmd") && radiant.data::is_empty(input$nn_pred_data)) {
+  if ((input$nn_predict == "data" || input$nn_predict == "datacmd") && is.empty(input$nn_pred_data)) {
     return("** Select data for prediction **")
   }
-  if (input$nn_predict == "cmd" && radiant.data::is_empty(input$nn_pred_cmd)) {
+  if (input$nn_predict == "cmd" && is.empty(input$nn_pred_cmd)) {
     return("** Enter prediction commands **")
   }
 
@@ -485,17 +515,17 @@ nn_available <- reactive({
   req(
     pressed(input$nn_run), input$nn_pred_plot,
     available(input$nn_xvar),
-    !radiant.data::is_empty(input$nn_predict, "none")
+    !is.empty(input$nn_predict, "none")
   )
 
   # if (not_pressed(input$nn_run)) return(invisible())
   # if (nn_available() != "available") return(nn_available())
   # req(input$nn_pred_plot, available(input$nn_xvar))
-  # if (radiant.data::is_empty(input$nn_predict, "none")) return(invisible())
-  # if ((input$nn_predict == "data" || input$nn_predict == "datacmd") && radiant.data::is_empty(input$nn_pred_data)) {
+  # if (is.empty(input$nn_predict, "none")) return(invisible())
+  # if ((input$nn_predict == "data" || input$nn_predict == "datacmd") && is.empty(input$nn_pred_data)) {
   #   return(invisible())
   # }
-  # if (input$nn_predict == "cmd" && radiant.data::is_empty(input$nn_pred_cmd)) {
+  # if (input$nn_predict == "cmd" && is.empty(input$nn_pred_cmd)) {
   #   return(invisible())
   # }
 
@@ -507,25 +537,23 @@ nn_available <- reactive({
 .plot_nn <- reactive({
   if (not_pressed(input$nn_run)) {
     return("** Press the Estimate button to estimate the model **")
-  }
-  if (nn_available() != "available") {
+  } else if (nn_available() != "available") {
     return(nn_available())
   }
   req(input$nn_size)
-  if (radiant.data::is_empty(input$nn_plots, "none")) {
+  if (is.empty(input$nn_plots, "none")) {
     return("Please select a neural network plot from the drop-down menu")
   }
-  pinp <- list(plots = input$nn_plots, shiny = TRUE)
+  pinp <- nn_plot_inputs()
+  pinp$shiny <- TRUE
+  pinp$size <- NULL
   if (input$nn_plots == "dashboard") {
     req(input$nn_nrobs)
-    pinp <- c(pinp, nrobs = as_integer(input$nn_nrobs))
   }
 
   if (input$nn_plots == "net") {
     .nn() %>%
-      {
-        if (is.character(.)) invisible() else capture_plot(do.call(plot, c(list(x = .), pinp)))
-      }
+      (function(x) if (is.character(x)) invisible() else capture_plot(do.call(plot, c(list(x = x), pinp))))
   } else {
     withProgress(message = "Generating plots", value = 1, {
       do.call(plot, c(list(x = .nn()), pinp))
@@ -548,7 +576,7 @@ observeEvent(input$nn_store_res, {
 })
 
 observeEvent(input$nn_store_pred, {
-  req(!radiant.data::is_empty(input$nn_pred_data), pressed(input$nn_run))
+  req(!is.empty(input$nn_pred_data), pressed(input$nn_run))
   pred <- .predict_nn()
   if (is.null(pred)) {
     return()
@@ -565,7 +593,7 @@ observeEvent(input$nn_store_pred, {
 })
 
 nn_report <- function() {
-  if (radiant.data::is_empty(input$nn_evar)) {
+  if (is.empty(input$nn_evar)) {
     return(invisible())
   }
 
@@ -573,17 +601,16 @@ nn_report <- function() {
   inp_out <- list(list(prn = TRUE), "")
   figs <- FALSE
 
-  if (!radiant.data::is_empty(input$nn_plots, "none")) {
-    if (input$nn_type == "regression" && input$nn_plots == "dashboard") {
-      inp_out[[2]] <- list(plots = input$nn_plots, nrobs = as_integer(input$nn_nrobs), custom = FALSE)
-    } else {
-      inp_out[[2]] <- list(plots = input$nn_plots, custom = FALSE)
-    }
+  if (!is.empty(input$nn_plots, "none")) {
+    inp <- check_plot_inputs(nn_plot_inputs())
+    inp$size <- NULL
+    inp_out[[2]] <- clean_args(inp, nn_plot_args[-1])
+    inp_out[[2]]$custom <- FALSE
     outputs <- c(outputs, "plot")
     figs <- TRUE
   }
 
-  if (!radiant.data::is_empty(input$nn_store_res_name)) {
+  if (!is.empty(input$nn_store_res_name)) {
     fixed <- fix_names(input$nn_store_res_name)
     updateTextInput(session, "nn_store_res_name", value = fixed)
     xcmd <- paste0(input$dataset, " <- store(", input$dataset, ", result, name = \"", fixed, "\")\n")
@@ -591,17 +618,17 @@ nn_report <- function() {
     xcmd <- ""
   }
 
-  if (!radiant.data::is_empty(input$nn_predict, "none") &&
-    (!radiant.data::is_empty(input$nn_pred_data) || !radiant.data::is_empty(input$nn_pred_cmd))) {
+  if (!is.empty(input$nn_predict, "none") &&
+    (!is.empty(input$nn_pred_data) || !is.empty(input$nn_pred_cmd))) {
     pred_args <- clean_args(nn_pred_inputs(), nn_pred_args[-1])
 
-    if (!radiant.data::is_empty(pred_args$pred_cmd)) {
-      pred_args$pred_cmd <- strsplit(pred_args$pred_cmd, ";")[[1]]
+    if (!is.empty(pred_args$pred_cmd)) {
+      pred_args$pred_cmd <- strsplit(pred_args$pred_cmd, ";\\s*")[[1]]
     } else {
       pred_args$pred_cmd <- NULL
     }
 
-    if (!radiant.data::is_empty(pred_args$pred_data)) {
+    if (!is.empty(pred_args$pred_data)) {
       pred_args$pred_data <- as.symbol(pred_args$pred_data)
     } else {
       pred_args$pred_data <- NULL
@@ -619,7 +646,7 @@ nn_report <- function() {
       )
     }
 
-    if (input$nn_pred_plot && !radiant.data::is_empty(input$nn_xvar)) {
+    if (input$nn_pred_plot && !is.empty(input$nn_xvar)) {
       inp_out[[3 + figs]] <- clean_args(nn_pred_plot_inputs(), nn_pred_plot_args[-1])
       inp_out[[3 + figs]]$result <- "pred"
       outputs <- c(outputs, "plot")

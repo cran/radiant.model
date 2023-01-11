@@ -14,6 +14,8 @@
 #' @param check Optional estimation parameters ("standardize" is the default)
 #' @param form Optional formula to use instead of rvar and evar
 #' @param data_filter Expression entered in, e.g., Data > View to filter the dataset in Radiant. The expression should be a string (e.g., "price > 10000")
+#' @param arr Expression to arrange (sort) the data on (e.g., "color, desc(price)")
+#' @param rows Rows to select from the specified dataset
 #' @param envir Environment to extract data from
 #'
 #' @return A list with all variables defined in nn as an object of class nn
@@ -33,8 +35,8 @@ nn <- function(dataset, rvar, evar,
                type = "classification", lev = "",
                size = 1, decay = .5, wts = "None",
                seed = NA, check = "standardize",
-               form,
-               data_filter = "", envir = parent.frame()) {
+               form, data_filter = "", arr = "",
+               rows = NULL, envir = parent.frame()) {
   if (!missing(form)) {
     form <- as.formula(format(form))
     paste0(format(form), collapse = "")
@@ -47,15 +49,15 @@ nn <- function(dataset, rvar, evar,
   if (rvar %in% evar) {
     return("Response variable contained in the set of explanatory variables.\nPlease update model specification." %>%
       add_class("nn"))
-  } else if (radiant.data::is_empty(size) || size < 1) {
+  } else if (is.empty(size) || size < 1) {
     return("Size should be larger than or equal to 1." %>% add_class("nn"))
-  } else if (radiant.data::is_empty(decay) || decay < 0) {
+  } else if (is.empty(decay) || decay < 0) {
     return("Decay should be larger than or equal to 0." %>% add_class("nn"))
   }
 
   vars <- c(rvar, evar)
 
-  if (radiant.data::is_empty(wts, "None")) {
+  if (is.empty(wts, "None")) {
     wts <- NULL
   } else if (is_string(wts)) {
     wtsname <- wts
@@ -63,9 +65,9 @@ nn <- function(dataset, rvar, evar,
   }
 
   df_name <- if (is_string(dataset)) dataset else deparse(substitute(dataset))
-  dataset <- get_data(dataset, vars, filt = data_filter, envir = envir)
+  dataset <- get_data(dataset, vars, filt = data_filter, arr = arr, rows = rows, envir = envir)
 
-  if (!radiant.data::is_empty(wts)) {
+  if (!is.empty(wts)) {
     if (exists("wtsname")) {
       wts <- dataset[[wtsname]]
       dataset <- select_at(dataset, .vars = base::setdiff(colnames(dataset), wtsname))
@@ -131,7 +133,7 @@ nn <- function(dataset, rvar, evar,
 
   ## based on https://stackoverflow.com/a/14324316/1974918
   seed <- gsub("[^0-9]", "", seed)
-  if (!radiant.data::is_empty(seed)) {
+  if (!is.empty(seed)) {
     if (exists(".Random.seed")) {
       gseed <- .Random.seed
       on.exit(.Random.seed <<- gseed)
@@ -260,8 +262,14 @@ summary.nn <- function(object, prn = TRUE, ...) {
     cat("Activation function  : Linear (regression)")
   }
   cat("\nData                 :", object$df_name)
-  if (!radiant.data::is_empty(object$data_filter)) {
+  if (!is.empty(object$data_filter)) {
     cat("\nFilter               :", gsub("\\n", "", object$data_filter))
+  }
+  if (!is.empty(object$arr)) {
+    cat("\nArrange              :", gsub("\\n", "", object$arr))
+  }
+  if (!is.empty(object$rows)) {
+    cat("\nSlice                :", gsub("\\n", "", object$rows))
   }
   cat("\nResponse variable    :", object$rvar)
   if (object$type == "classification") {
@@ -273,7 +281,7 @@ summary.nn <- function(object, prn = TRUE, ...) {
   }
   cat("Network size         :", object$size, "\n")
   cat("Parameter decay      :", object$decay, "\n")
-  if (!radiant.data::is_empty(object$seed)) {
+  if (!is.empty(object$seed)) {
     cat("Seed                 :", object$seed, "\n")
   }
 
@@ -281,7 +289,7 @@ summary.nn <- function(object, prn = TRUE, ...) {
   nweights <- length(object$model$wts)
   cat("Network              :", network, "with", nweights, "weights\n")
 
-  if (!radiant.data::is_empty(object$wts, "None") && (length(unique(object$wts)) > 2 || min(object$wts) >= 1)) {
+  if (!is.empty(object$wts, "None") && (length(unique(object$wts)) > 2 || min(object$wts) >= 1)) {
     cat("Nr obs               :", format_nr(sum(object$wts), dec = 0), "\n")
   } else {
     cat("Nr obs               :", format_nr(length(object$rv), dec = 0), "\n")
@@ -302,16 +310,112 @@ summary.nn <- function(object, prn = TRUE, ...) {
   }
 }
 
+#' Variable importance using the vip package and permutation importance
+#'
+#' @param object Model object created by Radiant
+#' @param rvar Label to identify the response or target variable
+#' @param lev Reference class for binary classifier (rvar)
+#' @param data Data to use for prediction. Will default to the data used to estimate the model
+#' @param seed Random seed for reproducibility
+#'
+#' @importFrom vip vi
+#'
+#' @export
+varimp <- function(object, rvar, lev, data = NULL, seed = 1234) {
+  if (is.null(data)) data <- object$model$model
+
+  # needed to avoid rescaling during prediction
+  object$check <- setdiff(object$check, c("center", "standardize"))
+
+  arg_list <- list(object, pred_data = data, se = FALSE)
+  if (missing(rvar)) rvar <- object$rvar
+  if (missing(lev) && object$type == "classification") {
+    if (!is.empty(object$lev)) {
+      lev <- object$lev
+    }
+    if (!is.logical(data[[rvar]])) {
+      # don't change if already logical
+      data[[rvar]] <- data[[rvar]] == lev
+    }
+  } else if (object$type == "classification") {
+    data[[rvar]] <- data[[rvar]] == lev
+  }
+
+  fun <- function(object, arg_list) do.call(predict, arg_list)[["Prediction"]]
+  if (inherits(object, "rforest")) {
+    arg_list$OOB <- FALSE # all 0 importance scores when using OOB
+    if (object$type == "classification") {
+      fun <- function(object, arg_list) do.call(predict, arg_list)[[object$lev]]
+    }
+  }
+
+  pred_fun <- function(object, newdata) {
+    arg_list$pred_data <- newdata
+    fun(object, arg_list)
+  }
+
+  set.seed(seed)
+  if (object$type == "regression") {
+    vimp <- vip::vi(
+      object,
+      target = rvar,
+      method = "permute",
+      metric = "r2", # "rmse"
+      pred_wrapper = pred_fun,
+      train = data
+    )
+  } else {
+    vimp <- vip::vi(
+      object,
+      target = rvar,
+      reference_class = TRUE,
+      method = "permute",
+      metric = "auc",
+      pred_wrapper = pred_fun,
+      train = data
+    )
+  }
+
+  vimp %>%
+    filter(Importance != 0) %>%
+    mutate(Variable = factor(Variable, levels = rev(Variable)))
+}
+
+#' Plot permutation importance
+#'
+#' @param object Model object created by Radiant
+#' @param rvar Label to identify the response or target variable
+#' @param lev Reference class for binary classifier (rvar)
+#' @param data Data to use for prediction. Will default to the data used to estimate the model
+#' @param seed Random seed for reproducibility
+#'
+#' @importFrom vip vi
+#'
+#' @export
+varimp_plot <- function(object, rvar, lev, data = NULL, seed = 1234) {
+  vi_scores <- varimp(object, rvar, lev, data = data, seed = seed)
+  visualize(vi_scores, yvar = "Importance", xvar = "Variable", type = "bar", custom = TRUE) +
+    labs(
+      title = "Permutation Importance",
+      x = NULL,
+      y = ifelse(object$type == "regression", "Importance (R-square decrease)", "Importance (AUC decrease)")
+    ) +
+    coord_flip() +
+    theme(axis.text.y = element_text(hjust = 0))
+}
+
 #' Plot method for the nn function
 #'
 #' @details See \url{https://radiant-rstats.github.io/docs/model/nn.html} for an example in Radiant
 #'
 #' @param x Return value from \code{\link{nn}}
-#' @param shiny Did the function call originate inside a shiny app
 #' @param plots Plots to produce for the specified Neural Network model. Use "" to avoid showing any plots (default). Options are "olden" or "garson" for importance plots, or "net" to depict the network structure
 #' @param size Font size used
 #' @param pad_x Padding for explanatory variable labels in the network plot. Default value is 0.9, smaller numbers (e.g., 0.5) increase the amount of padding
 #' @param nrobs Number of data points to show in dashboard scatter plots (-1 for all)
+#' @param incl Which variables to include in a coefficient plot or PDP plot
+#' @param incl_int Which interactions to investigate in PDP plots
+#' @param shiny Did the function call originate inside a shiny app
 #' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{https://ggplot2.tidyverse.org} for options.
 #' @param ... further arguments passed to or from other methods
 #'
@@ -327,256 +431,14 @@ summary.nn <- function(object, prn = TRUE, ...) {
 #' @importFrom graphics par
 #'
 #' @export
-
-
-# library(radiant.model)
-# result <- nn(
-#   diamonds,
-#   rvar = "price",
-#   evar = c("carat", "clarity", "cut", "color"),
-#   type = "regression",
-#   seed = 1234
-# )
-# varimp(result)
-# varimpb(result$model, target = "price", data)
-
-# result <- nn(
-#   titanic,
-#   rvar = "survived",
-#   evar = c("pclass", "sex", "age", "sibsp", "parch"),
-#   lev = "Yes",
-#   seed = 1234
-# )
-# varimp(result)
-
-# result <- crtree(
-#   diamonds,
-#   rvar = "price",
-#   evar = c("carat", "clarity", "cut", "color"),
-#   type = "regression",
-# )
-# varimp(result)
-# predict(result$model)
-
-# result <- crtree(
-#   titanic,
-#   rvar = "survived",
-#   evar = c("pclass", "sex", "age", "sibsp", "parch"),
-#   lev = "Yes",
-#   seed = 1234
-# )
-# varimp(result)
-# # predict(result$model)
-
-# result <- rforest(
-#   diamonds,
-#   rvar = "price",
-#   evar = c("carat", "clarity", "cut", "color"),
-#   type = "regression",
-# )
-# varimp(result)
-# # predict(result$model, data = result$model$model)[[1]]
-
-# result <- rforest(
-#   titanic,
-#   rvar = "survived",
-#   evar = c("pclass", "sex", "age", "sibsp", "parch"),
-#   lev = "Yes",
-#   seed = 1234
-# )
-# varimp(result)
-# # predict(result$model, data = result$model$model)[[1]]
-# # predict(result, data = result$model$model)
-# # result$model$model
-# # predict(result, pred_data = titanic, OOB = FALSE)
-
-# result <- gbt(
-#   diamonds,
-#   rvar = "price",
-#   evar = c("carat", "clarity", "cut", "color"),
-#   type = "regression",
-# )
-# varimp(result)
-# # predict(result, pred_data = result$model$model)
-
-# result <- gbt(
-#   titanic,
-#   rvar = "survived",
-#   evar = c("pclass", "sex", "age", "sibsp", "parch"),
-#   lev = "Yes",
-#   seed = 1234
-# )
-# varimp(result)
-# # predict(result, pred_data = result$model$model)
-
-# result <- logistic(
-#   titanic,
-#   rvar = "survived",
-#   evar = c("pclass", "sex", "age", "sibsp", "parch"),
-#   lev = "Yes",
-# )
-# result$type <- "classification"
-# varimp(result, data = titanic[1:100, ])
-# # varimp(result, data=titanic[1:100,])
-
-# result <- regress(
-#   diamonds,
-#   rvar = "price",
-#   evar = c("carat", "clarity", "cut", "color")
-# )
-# result$type <- "regression"
-# varimp(result)
-
-# varimp <- function(object, target, reference_class, data = NULL, seed = 1234) {
-#   # object <- result
-#   # data <- NULL
-#   # target <- object$rvar
-
-#   if (is.null(data)) data <- object$model$model
-#   # arg_list <- list(object$model, newdata = data)
-#   arg_list <- list(object, pred_data = data)
-#   if (missing(target)) target <- object$rvar
-#   if (missing(reference_class) && !is.null(object$lev)) {
-#     # reference_class <- object$lev
-#     if (!is.logical(data[[target]])) {
-#       data[[target]] <- data[[target]] == object$lev
-#     }
-#   }
-
-#   # Compare with Blake's results (with seed set)
-
-#   # fun <- function(object, arg_list) do.call(predict, arg_list)
-
-#   # if (inherits(object$model, "glm")) {
-#   # if (inherits(object, "logistic")) {
-#   #   arg_list$type <- "response"
-#   # } else if (inherits(object$model, "nnet")) {
-#   #   arg_list$type <- "raw"
-#   #   fun <- function(object, arg_list) do.call(predict, arg_list)[, 1]
-#   # } else if (inherits(object$model, "rpart") && object$type == "classification") {
-#   #   fun <- function(object, arg_list) do.call(predict, arg_list)[, 1]
-#   # } else if (inherits(object$model, "ranger")) {
-#   #   arg_list$type <- "response"
-#   #   if (object$type == "classification") {
-#   #     fun <- function(object, arg_list) do.call(predict, arg_list)[[1]][, 2]
-#   #   } else {
-#   #     fun <- function(object, arg_list) do.call(predict, arg_list)[[1]]
-#   #   }
-#   # } else if (inherits(object, "gbt")) {
-#   # arg_list[[1]] <- object
-#   #   fun <- function(object, arg_list) do.call(predict, arg_list)[["Prediction"]]
-#   # }
-
-#   fun <- function(object, arg_list) do.call(predict, arg_list)[["Prediction"]]
-#   if (inherits(object, "rforest")) {
-#     arg_list$OOB <- FALSE
-#     if (object$type == "classification") {
-#       fun <- function(object, arg_list) do.call(predict, arg_list)[[object$lev]]
-#     }
-#   }
-
-#   pred_fun <- function(object, newdata) {
-#     arg_list$pred_data <- newdata
-#     fun(object, arg_list)
-#   }
-#   data
-
-#   set.seed(seed)
-#   if (object$type == "regression") {
-#     vimp <- vip::vi(
-#       object,
-#       target = target,
-#       method = "permute",
-#       metric = "rmse",
-#       pred_wrapper = pred_fun,
-#       train = data
-#     )
-#   } else {
-#     vimp <- vip::vi(
-#       object,
-#       target = target,
-#       reference_class = TRUE,
-#       method = "permute",
-#       metric = "auc",
-#       pred_wrapper = pred_fun,
-#       train = data
-#     )
-#   }
-
-#   vimp %>%
-#     filter(Importance != 0) %>%
-#     mutate(Variable = factor(Variable, levels = rev(Variable)))
-# }
-
-# varimpb <- function(object, target, data = NULL) {
-#   if (!any(class(object) %in% c("lm", "glm", "nnet", "ranger"))) {
-#     stop("This function works only for objects of type lm, glm, nnet, and ranger.")
-#   }
-#   if ("lm" %in% class(object) & !("glm" %in% class(object))) {
-#     predict.internal <- function(object, newdata) {
-#       predict(object, newdata = newdata)
-#     }
-#   }
-#   if ("glm" %in% class(object)) {
-#     predict.internal <- function(object, newdata) {
-#       predict(object, newdata = newdata, type = "response")
-#     }
-#   }
-#   if ("nnet" %in% class(object)) {
-#     predict.internal <- function(object, newdata) {
-#       predict(object, newdata = newdata, type = "raw")[, 1]
-#     }
-#   }
-#   if ("ranger" %in% class(object)) {
-#     predict.internal <- function(object, newdata) {
-#       predict(object, data = newdata, type = "response")[[1]][, 2]
-#     }
-#     if (is.null(data)) {
-#       stop("This function requires a test dataset on which to evaluate variable importance for models of class ranger.")
-#     }
-#   }
-
-#   if ("lm" %in% class(object) & !("glm" %in% class(object))) {
-#     if (is.null(data)) {
-#       vi0 <- vip::vi(object,
-#         target = target,
-#         method = "permute", metric = "rmse", pred_wrapper = predict.internal
-#       )
-#     } else {
-#       vi0 <- vip::vi(object,
-#         target = target,
-#         method = "permute", metric = "rmse", pred_wrapper = predict.internal, train = data
-#       )
-#     }
-#   } else {
-#     if (is.null(data)) {
-#       vi0 <- vip::vi(object,
-#         target = target, reference_class = 1,
-#         method = "permute", metric = "auc", pred_wrapper = predict.internal
-#       )
-#     } else {
-#       vi0 <- vip::vi(object,
-#         target = target, reference_class = 1,
-#         method = "permute", metric = "auc", pred_wrapper = predict.internal, train = data
-#       )
-#     }
-#   }
-
-#   vi0 <- vi0 %>%
-#     filter(Importance != 0) %>%
-#     mutate(Variable = factor(Variable, levels = rev(Variable)))
-#   vi0
-
-#   # print(ggplot(vi0, aes(x=Variable,y=Importance)) + geom_col() + coord_flip())
-# }
-
-plot.nn <- function(x, plots = "garson", size = 12, pad_x = 0.9, nrobs = -1,
+plot.nn <- function(x, plots = "vip", size = 12, pad_x = 0.9, nrobs = -1,
+                    incl = NULL, incl_int = NULL,
                     shiny = FALSE, custom = FALSE, ...) {
   if (is.character(x) || !inherits(x$model, "nnet")) {
     return(x)
   }
   plot_list <- list()
-  ncol <- 1
+  nrCol <- 1
 
   if ("olden" %in% plots || "olsen" %in% plots) { ## legacy for typo
     plot_list[["olsen"]] <- NeuralNetTools::olden(x$model, x_lab = x$coefnames, cex_val = 4) +
@@ -594,10 +456,17 @@ plot.nn <- function(x, plots = "garson", size = 12, pad_x = 0.9, nrobs = -1,
       labs(title = paste0("Garson plot of variable importance (size = ", x$size, ", decay = ", x$decay, ")"))
   }
 
-
-
   if ("vip" %in% plots) {
-
+    vi_scores <- varimp(x)
+    plot_list[["vip"]] <-
+      visualize(vi_scores, yvar = "Importance", xvar = "Variable", type = "bar", custom = TRUE) +
+      labs(
+        title = paste0("Permutation Importance (size = ", x$size, ", decay = ", x$decay, ")"),
+        x = NULL,
+        y = ifelse(x$type == "regression", "Importance (R-square decrease)", "Importance (AUC decrease)")
+      ) +
+      coord_flip() +
+      theme(axis.text.y = element_text(hjust = 0))
   }
 
   if ("net" %in% plots) {
@@ -607,30 +476,35 @@ plot.nn <- function(x, plots = "garson", size = 12, pad_x = 0.9, nrobs = -1,
     return(do.call(NeuralNetTools::plotnet, list(mod_in = x$model, x_names = x$coefnames, pad_x = pad_x, cex_val = size / 16)))
   }
 
+  if ("pred_plot" %in% plots) {
+    nrCol <- 2
+    if (length(incl) > 0 | length(incl_int) > 0) {
+      plot_list <- pred_plot(x, plot_list, incl, incl_int, ...)
+    } else {
+      return("Select one or more variables to generate Prediction plots")
+    }
+  }
+
   if ("pdp" %in% plots) {
-    ncol <- 2
-    for (pn in x$evar) {
-      plot_list[[pn]] <- pdp::partial(
-        x$model,
-        pred.var = pn, plot = TRUE, rug = TRUE,
-        prob = x$type == "classification", plot.engine = "ggplot2"
-      ) + labs(y = "")
+    nrCol <- 2
+    if (length(incl) > 0 || length(incl_int) > 0) {
+      plot_list <- pdp_plot(x, plot_list, incl, incl_int, ...)
+    } else {
+      return("Select one or more variables to generate Partial Dependence Plots")
     }
   }
 
   if (x$type == "regression" && "dashboard" %in% plots) {
     plot_list <- plot.regress(x, plots = "dashboard", lines = "line", nrobs = nrobs, custom = TRUE)
-    ncol <- 2
+    nrCol <- 2
   }
 
   if (length(plot_list) > 0) {
     if (custom) {
       if (length(plot_list) == 1) plot_list[[1]] else plot_list
     } else {
-      patchwork::wrap_plots(plot_list, ncol = ncol) %>%
-        {
-          if (shiny) . else print(.)
-        }
+      patchwork::wrap_plots(plot_list, ncol = nrCol) %>%
+        (function(x) if (isTRUE(shiny)) x else print(x))
     }
   }
 }
