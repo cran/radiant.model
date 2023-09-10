@@ -30,16 +30,22 @@
 #' gbt(titanic, "survived", c("pclass", "sex"), lev = "Yes") %>% summary()
 #' gbt(titanic, "survived", c("pclass", "sex")) %>% str()
 #' }
-#' gbt(titanic, "survived", c("pclass", "sex"), lev = "Yes", early_stopping_rounds = 0) %>% summary()
-#' gbt(titanic, "survived", c("pclass", "sex"), early_stopping_rounds = 0) %>% str()
-#' gbt(titanic, "survived", c("pclass", "sex"), eval_metric = paste0("error@", 0.5 / 6)) %>% str()
-#' gbt(diamonds, "price", c("carat", "clarity"), type = "regression") %>% summary()
-#' rig_wrap <- function(preds, dtrain) {
-#'   labels <- xgboost::getinfo(dtrain, "label")
-#'   value <- rig(preds, labels, lev = 1)
-#'   list(metric = "rig", value = value)
-#' }
-#' gbt(titanic, "survived", c("pclass", "sex"), eval_metric = rig_wrap, maximize = TRUE) %>% str()
+#' gbt(
+#'   titanic, "survived", c("pclass", "sex"), lev = "Yes",
+#'   early_stopping_rounds = 0, nthread = 1
+#' ) %>% summary()
+#' gbt(
+#'   titanic, "survived", c("pclass", "sex"),
+#'   early_stopping_rounds = 0, nthread = 1
+#' ) %>% str()
+#' gbt(
+#'   titanic, "survived", c("pclass", "sex"),
+#'   eval_metric = paste0("error@", 0.5 / 6), nthread = 1
+#' ) %>% str()
+#' gbt(
+#'   diamonds, "price", c("carat", "clarity"), type = "regression", nthread = 1
+#' ) %>% summary()
+#'
 #' @seealso \code{\link{summary.gbt}} to summarize results
 #' @seealso \code{\link{plot.gbt}} to plot results
 #' @seealso \code{\link{predict.gbt}} for prediction
@@ -171,7 +177,8 @@ gbt <- function(dataset, rvar, evar, type = "classification", lev = "",
   }
 
   ## adding feature importance information
-  model$importance <- xgboost::xgb.importance(model = model)
+  ## replaced by premutation importance
+  # model$importance <- xgboost::xgb.importance(model = model)
 
   ## gbt model object does not include the data by default
   model$model <- dataset
@@ -194,7 +201,10 @@ gbt <- function(dataset, rvar, evar, type = "classification", lev = "",
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
-#' result <- gbt(titanic, "survived", c("pclass", "sex"), early_stopping_rounds = 0) %>% str()
+#' result <- gbt(
+#'   titanic, "survived", c("pclass", "sex"),
+#'   early_stopping_rounds = 0, nthread = 1
+#' )
 #' summary(result)
 #' @seealso \code{\link{gbt}} to generate results
 #' @seealso \code{\link{plot.gbt}} to plot results
@@ -277,7 +287,10 @@ summary.gbt <- function(object, prn = TRUE, ...) {
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
-#' result <- gbt(titanic, "survived", c("pclass", "sex"), early_stopping_rounds = 0)
+#' result <- gbt(
+#'   titanic, "survived", c("pclass", "sex"),
+#'   early_stopping_rounds = 0, nthread = 1
+#' )
 #' plot(result)
 #'
 #' @seealso \code{\link{gbt}} to generate results
@@ -362,7 +375,7 @@ plot.gbt <- function(x, plots = "", nrobs = Inf,
           (function(x) seq(min(x), max(x), length.out = 20)) %>%
           paste0(collapse = ", ")
         pred <- predict(x, pred_cmd = glue("{cn[1]} = c({num_range1}), {cn[2]} = c({num_range2})"))
-        plot_list[[pn_lab]] <- ggplot(pred, aes(x = .data[[cn[1]]], y = .data[[cn[2]]], fill = "Prediction")) +
+        plot_list[[pn_lab]] <- ggplot(pred, aes(x = .data[[cn[1]]], y = .data[[cn[2]]], fill = .data[["Prediction"]])) +
           geom_tile()
       } else if (sum(is_num) == 0) {
         # 2 categorical variables
@@ -384,37 +397,6 @@ plot.gbt <- function(x, plots = "", nrobs = Inf,
         plot_list[[pn_lab]] <- plot(pred, xvar = cn_num[1], color = cn_fct, custom = TRUE)
       }
     }
-  }
-
-  if ("vimp" %in% plots) {
-    imp <- x$model$importance
-    mod_dat <- x$model$model
-    vimp <- data.frame(
-      Feature = colnames(mod_dat)[-1],
-      Gain = 0
-    )
-    for (i in colnames(mod_dat)[-1]) {
-      if (is.factor(mod_dat[[i]])) {
-        fn <- paste0(i, levels(mod_dat[[i]]))
-        if (any(fn %in% imp$Feature)) {
-          vimp[vimp$Feature == i, "Gain"] <- sum(imp[imp$Feature %in% fn, "Gain"])
-        }
-      } else {
-        if (i %in% imp$Feature) {
-          vimp[vimp$Feature == i, "Gain"] <- imp[imp$Feature == i, "Gain"]
-        }
-      }
-    }
-
-    ncol <- 1
-    vimp <- vimp %>%
-      arrange_at("Gain") %>%
-      mutate(Feature = factor(Feature, levels = Feature))
-    plot_list[["vimp"]] <- visualize(vimp, yvar = "Gain", xvar = "Feature", type = "bar", custom = TRUE) +
-      guides(fill = guide_legend(title = "")) +
-      labs(x = "", y = "Variable Importance (Gain)") +
-      coord_flip() +
-      theme(axis.text.y = element_text(hjust = 0))
   }
 
   if ("pred_plot" %in% plots) {
@@ -466,9 +448,12 @@ plot.gbt <- function(x, plots = "", nrobs = Inf,
 #' @param ... further arguments passed to or from other methods
 #'
 #' @examples
-#' result <- gbt(titanic, "survived", c("pclass", "sex"), early_stopping_rounds = 0)
+#' result <- gbt(
+#'   titanic, "survived", c("pclass", "sex"),
+#'   early_stopping_rounds = 2, nthread = 1
+#' )
 #' predict(result, pred_cmd = "pclass = levels(pclass)")
-#' result <- gbt(diamonds, "price", "carat:color", type = "regression")
+#' result <- gbt(diamonds, "price", "carat:color", type = "regression", nthread = 1)
 #' predict(result, pred_cmd = "carat = 1:3")
 #' predict(result, pred_data = diamonds) %>% head()
 #' @seealso \code{\link{gbt}} to generate the result
@@ -569,13 +554,6 @@ print.gbt.predict <- function(x, ..., n = 10) {
 #' cv.gbt(result, params = list(max_depth = 1:2, min_child_weight = 1:2))
 #' cv.gbt(result, params = list(learning_rate = seq(0.1, 0.5, 0.1)), fun = Rsq, maximize = TRUE)
 #' cv.gbt(result, params = list(learning_rate = seq(0.1, 0.5, 0.1)), fun = MAE, maximize = FALSE)
-#' rig_wrap <- function(preds, dtrain) {
-#'   labels <- xgboost::getinfo(dtrain, "label")
-#'   value <- rig(preds, labels, lev = 1)
-#'   list(metric = "rig", value = value)
-#' }
-#' result <- gbt(titanic, "survived", c("pclass", "sex"), eval_metric = rig_wrap, maximize = TRUE)
-#' cv.gbt(result, params = list(learning_rate = seq(0.1, 0.5, 0.1)))
 #' }
 #'
 #' @export

@@ -337,8 +337,8 @@ plot.rforest <- function(x, plots = "", nrobs = Inf,
 #'   levels of factor `pclass`. To add another variable, create a vector of prediction strings, (e.g., c('pclass = levels(pclass)', 'age = seq(0,100,20)')
 #' @param pred_names Names for the predictions to be stored. If one name is provided, only the first column of predictions is stored. If empty, the levels
 #'   in the response variable of the rforest model will be used
-#' @param OOB Use Out-Of-Bag predictions (TRUE or FALSE). Relevant when evaluating predictions for the training sample. If missing, datasets will be compared
-#'   to determine of OOB predictions should be used
+#' @param OOB Use Out-Of-Bag predictions (TRUE or FALSE). Relevant when evaluating predictions for the training sample. If set to NULL, datasets will be compared
+#'   to determine if OOB predictions should be used
 #' @param dec Number of decimals to show
 #' @param envir Environment to extract data from
 #' @param ... further arguments passed to or from other methods
@@ -371,7 +371,7 @@ predict.rforest <- function(object, pred_data = NULL, pred_cmd = "",
   pfun <- function(model, pred, se, conf_lev, OOB = OOB) {
     pred <- mutate_if(pred, is.Date, as.numeric)
     if (is.empty(OOB)) {
-      if (isTRUE(dplyr::all_equal(select(model$model, -1), pred))) {
+      if (isTRUE(all.equal(select(model$model, -1), pred))) {
         message("Using OOB predictions after comparing the training and prediction data")
         OOB <- TRUE
       }
@@ -508,7 +508,6 @@ plot.rforest.predict <- function(x, xvar = "", facet_row = ".", facet_col = ".",
 #'
 #' @export
 store.rforest.predict <- function(dataset, object, name = NULL, ...) {
-
   ## extract the names of the variables predicted
   pvars <- base::setdiff(attr(object, "radiant_vars"), attr(object, "radiant_evar"))
 

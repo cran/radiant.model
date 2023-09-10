@@ -412,9 +412,9 @@ summary.logistic <- function(object, sum_check = "", conf_lev = .95,
       sub_form <- paste(object$rvar, "~ 1")
 
       vars <- object$evar
-      if (object$int != "" && length(vars) > 1) {
+      if (!is.empty(object$int) && length(vars) > 1) {
         ## updating test_var if needed
-        test_var <- test_specs(test_var, object$int)
+        test_var <- unique(c(test_var, test_specs(test_var, object$int)))
         vars <- c(vars, object$int)
       }
 
@@ -574,9 +574,7 @@ plot.logistic <- function(x, plots = "coef", conf_lev = .95,
       set_colnames(c("Low", "High")) %>%
       cbind(select(x$coeff, 2), .) %>%
       set_rownames(x$coeff$label) %>%
-      {
-        if (!intercept) .[-1, ] else .
-      } %>%
+      (function(x) if (!intercept) x[-1, , drop = FALSE] else x) %>%
       mutate(variable = factor(rownames(.), levels = rownames(.)))
 
     # addressing issues with extremely high upper bounds
