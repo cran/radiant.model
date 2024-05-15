@@ -313,7 +313,8 @@ simulater <- function(const = "", lnorm = "", norm = "", unif = "", discrete = "
       gsub("[ ]{2,}", " ", .) %>%
       gsub("<-", "=", .)
 
-    out <- try(do.call(within, list(dataset, c(pfuncs, parse(text = form)))), silent = TRUE)
+    form_no_comments <- remove_comments(form)
+    out <- try(do.call(within, list(dataset, c(pfuncs, parse(text = form_no_comments)))), silent = TRUE)
     if (!inherits(out, "try-error")) {
       dataset <- out
     } else {
@@ -676,20 +677,15 @@ repeater <- function(dataset, nr = 12, vars = "", grid = "", sum_vars = "",
       do.call(simulater, sc)
     ) %>%
       na.omit() %>%
-      sfun() %>%
-      {
-        incProgress(rep_nr / nr, detail = paste("\nCompleted run", rep_nr, "out of", nr))
-        .
-      }
+      sfun() %T>%
+      (function(x) incProgress(rep_nr / nr, detail = paste("\nCompleted run", rep_nr, "out of", nr)))
   }
 
   rep_grid_sim <- function(gval, rep_nr, nr, sfun = function(x) x) {
     gvars <- names(gval)
     ## removing form and funcs ...
     sc_grid <- grep(paste(gvars, collapse = "|"), sc_keep, value = TRUE) %>%
-      {
-        .[which(!names(.) %in% c("form", "funcs"))]
-      } %>%
+      (function(x) x[which(!names(x) %in% c("form", "funcs"))]) %>%
       gsub("[ ]{2,}", " ", .)
 
     for (i in 1:length(gvars)) {
@@ -758,7 +754,8 @@ repeater <- function(dataset, nr = 12, vars = "", grid = "", sum_vars = "",
       gsub("[ ]{2,}", " ", .) %>%
       gsub("<-", "=", .)
 
-    out <- try(do.call(within, list(ret, parse(text = form))), silent = TRUE)
+    form_no_comments <- remove_comments(form)
+    out <- try(do.call(within, list(ret, parse(text = form_no_comments))), silent = TRUE)
     if (!inherits(out, "try-error")) {
       ret <- out
     } else {
@@ -1000,7 +997,7 @@ sim_summary <- function(dataset, dc = get_class(dataset), fun = "", dec = 4) {
     cat("\n")
   }
 
-  if (sum(isFct) > 0 | sum(isChar) > 0) {
+  if (sum(isFct) > 0 || sum(isChar) > 0) {
     cat("Factors:\n")
     df <- select(dataset, which(isFct | isChar)) %>%
       mutate(across(where(is.character), as_factor)) %>%
@@ -1030,6 +1027,23 @@ sim_cleaner <- function(x) {
     gsub("[;]{2,}", ";", .) %>%
     gsub(";$", "", .) %>%
     gsub("^;", "", .)
+}
+
+#' Remove comments from formula before it is evaluated
+#'
+#' @param x Input string
+#'
+#' @return Cleaned string
+#'
+#' @export
+remove_comments <- function(x) {
+  gsub("[ ]*\\#{1,}[^\n;]*[\n]", "\n", x) %>%
+    gsub("[ ]*\\#{1,}[^\n;]*[;]", ";", .) %>%
+    gsub("^[ ]*;{1,}", "", .) %>%
+    gsub(";{2,}", ";", .) %>%
+    gsub("^[ ]*\n{1,}", "", .) %>%
+    gsub("\n{2,}", "\n", .) %>%
+    gsub("^[ ]{1,}", "", .)
 }
 
 #' Split input command string
