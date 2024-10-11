@@ -36,12 +36,13 @@ dtree_parser <- function(yl) {
   yl %<>% gsub("(^\\s*p\\s*:)\\s*(\\.[0-9]+$)", "\\1 0\\2", ., perl = TRUE)
 
   ## make sure the labels are in lower case
-  yl %<>% gsub("(^\\s*)name(\\s*:)", "\\1name\\2", ., ignore.case = TRUE, perl = TRUE)
-  yl %<>% gsub("(^\\s*)variables(\\s*:)", "\\1variables\\2", ., ignore.case = TRUE, perl = TRUE)
-  yl %<>% gsub("(^\\s*)type(\\s*:)", "\\1type\\2", ., ignore.case = TRUE, perl = TRUE)
-  yl %<>% gsub("(^\\s*)p(\\s*:)", "\\1p\\2", ., ignore.case = TRUE, perl = TRUE)
-  yl %<>% gsub("(^\\s*)payoff(\\s*:)", "\\1payoff\\2", ., ignore.case = TRUE, perl = TRUE)
-  yl %<>% gsub("(^\\s*)cost(\\s*:)", "\\1cost\\2", ., ignore.case = TRUE, perl = TRUE)
+  yl <- yl %>%
+    gsub("(^\\s*)name(\\s*:)", "\\1name\\2", ., ignore.case = TRUE, perl = TRUE) %>%
+    gsub("(^\\s*)variables(\\s*:)", "\\1variables\\2", ., ignore.case = TRUE, perl = TRUE) %>%
+    gsub("(^\\s*)type(\\s*:)", "\\1type\\2", ., ignore.case = TRUE, perl = TRUE) %>%
+    gsub("(^\\s*)p(\\s*:)", "\\1p\\2", ., ignore.case = TRUE, perl = TRUE) %>%
+    gsub("(^\\s*)payoff(\\s*:)", "\\1payoff\\2", ., ignore.case = TRUE, perl = TRUE) %>%
+    gsub("(^\\s*)cost(\\s*:)", "\\1cost\\2", ., ignore.case = TRUE, perl = TRUE)
 
   ## check type line is followed by a name
   type_id <- yl %>%
@@ -58,14 +59,12 @@ dtree_parser <- function(yl) {
   ## can't have # signs anywhere if line is not a comment
   nc_id <- yl %>%
     grepl("^\\s*#", ., perl = TRUE) %>%
-    {
-      . == FALSE
-    } %>%
+    (function(x) x == FALSE)  %>%
     which()
 
   if (length(nc_id) > 0) {
     yl[nc_id] %<>% gsub("#", "//", ., perl = TRUE) %>%
-      gsub("(^\\s*)[\\!`@%&\\*-\\+]*\\s*", "\\1", ., perl = TRUE)
+    gsub("(^\\s*)[\\!`@%&\\*-\\+]*\\s*", "\\1", ., perl = TRUE)
   }
 
   ## Find node names
@@ -189,8 +188,17 @@ dtree <- function(yl, opt = "max", base = character(0), envir = parent.frame()) 
       return(yl)
     }
 
+    # int2float <- function(x) {
+    #   if (is.numeric(x) && x > .Machine$integer.max) {
+    #     x <- as.numeric(x)
+    #   }
+    #   return(x)
+    # }
+
     ## if the name of input-list in r_data is provided
     yl <- try(yaml::yaml.load(yl), silent = TRUE)
+    # causes issues with some yaml files
+    # yl <- try(yaml::yaml.load(yl, handlers = list(int = int2float)), silent = TRUE)
 
     ## used when a string is provided
     if (inherits(yl, "try-error")) {
@@ -201,6 +209,20 @@ dtree <- function(yl, opt = "max", base = character(0), envir = parent.frame()) 
         err <- paste0("**\nIndentation issue found in line ", err_line, ".\nThis means that the indentation level is not correct when compared\nto prior or subsequent lines in the tree input. Use tabs to separate\nthe branches in the decision tree. Fix the indentation error and try\nagain. Examples are shown in the help file (?)\n**")
       }
       return(add_class(err, c("dtree", "dtree-error")))
+    } else {
+      # recursive function to check for missing values
+      check_na <- function(x) {
+        if (is.list(x)) {
+          return(any(sapply(x, check_na)))
+        } else {
+          return(is.na(x))
+        }
+      }
+      any_missing <- check_na(yl)
+      if (isTRUE(any_missing)) {
+        err <- paste0("**\nMissing values in the tree. The most likely cause\nis cost or payoff numbers above 2,147,483,647.\nIntegers of this size are not currently supported.\nEither add .0 after the largest numbers or scale\nall numbers in 1,000 or 1,000,000 (e.g., use 3.6\ninstead of 3,600,000)\n**\n\n")
+        return(add_class(err, c("dtree", "dtree-error")))
+      }
     }
   }
 
@@ -491,10 +513,7 @@ summary.dtree <- function(object, input = TRUE, output = FALSE,
   isNum <- function(x) !is_not(x) && !grepl("[A-Za-z]+", x)
 
   print_money <- function(x) {
-    x %>%
-      {
-        if (isNum(.)) . else ""
-      } %>%
+    x %>% (function(x) if (isNum(x)) x else "") %>%
       formatC(
         digits = dec,
         decimal.mark = ".",
@@ -504,21 +523,14 @@ summary.dtree <- function(object, input = TRUE, output = FALSE,
   }
 
   print_percent <- function(x) {
-    x %>%
-      {
-        if (isNum(.)) . else NA
-      } %>%
+    x %>% (function(x) if (isNum(x)) x else NA) %>%
       data.tree::FormatPercent()
   }
 
   rm_terminal <- function(x) {
     x %>%
-      {
-        if (is.na(.)) "" else .
-      } %>%
-      {
-        if (. == "terminal") "" else .
-      }
+      (function(x) if (is.na(x)) "" else x) %>%
+        (function(x) if (x == "terminal") "" else x)
   }
 
   format_dtree <- function(jl) {
@@ -640,8 +652,14 @@ plot.dtree <- function(x, symbol = "$", dec = 2, final = FALSE, orient = "LR", w
       lbl <- paste0(node$name, ": ", format_nr(as.numeric(node$p), dec = dec + 2))
     }
 
-    if (length(node$parent$decision) > 0 && length(node$name) > 0 && node$name == node$parent$decision) {
-      paste0(" === |", lbl, "|")
+    if (length(node$parent$decision) > 0 && length(node$name) > 0) {
+      if (length(node$parent$decision) == 1 && node$name == node$parent$decision) {
+        paste0(" === |", lbl, "|")
+      } else if (any(node$name == node$parent$decision)) {
+        paste0(" === |", lbl, "|")
+      } else {
+        paste0(" --- |", lbl, "|")
+      }
     } else {
       paste0(" --- |", lbl, "|")
     }
