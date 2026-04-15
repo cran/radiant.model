@@ -334,6 +334,10 @@ summary.crtree <- function(object, prn = TRUE, splits = FALSE, cptab = FALSE, mo
 #' @param dec Decimal places to round results to
 #' @param incl Which variables to include in a coefficient plot or PDP plot
 #' @param incl_int Which interactions to investigate in PDP plots
+#' @param hline Add a dashed horizontal line at the mean response (TRUE/FALSE or a numeric value)
+#' @param pdp_range Numeric vector \code{c(lo, hi)} giving the percentile range for PDP/Prediction plot x-axes (default \code{c(0.025, 0.975)})
+#' @param minq Deprecated. Use \code{pdp_range[1]} instead
+#' @param maxq Deprecated. Use \code{pdp_range[2]} instead
 #' @param shiny Did the function call originate inside a shiny app
 #' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{https://ggplot2.tidyverse.org} for options.
 #' @param ... further arguments passed to or from other methods
@@ -358,6 +362,7 @@ plot.crtree <- function(x, plots = "tree", orient = "LR",
                         width = "900px", labs = TRUE,
                         nrobs = Inf, dec = 2,
                         incl = NULL, incl_int = NULL,
+                        hline = TRUE, pdp_range = c(0.025, 0.975), minq = NULL, maxq = NULL,
                         shiny = FALSE, custom = FALSE, ...) {
   if (is.empty(plots) || "tree" %in% plots) {
     if ("character" %in% class(x)) {
@@ -587,16 +592,21 @@ plot.crtree <- function(x, plots = "tree", orient = "LR",
     if ("pred_plot" %in% plots) {
       nrCol <- 2
       if (length(incl) > 0 | length(incl_int) > 0) {
-        plot_list <- pred_plot(x, plot_list, incl, incl_int, ...)
+        plot_list <- pred_plot(x, plot_list, incl, incl_int, hline = hline, pdp_range = pdp_range, ...)
       } else {
         return("Select one or more variables to generate Prediction plots")
       }
     }
 
+    if (!is.null(minq) || !is.null(maxq)) {
+      warning("'minq'/'maxq' are deprecated; use 'pdp_range = c(lo, hi)' instead.", call. = FALSE)
+      if (!is.null(minq)) pdp_range[1] <- minq
+      if (!is.null(maxq)) pdp_range[2] <- maxq
+    }
     if ("pdp" %in% plots) {
       nrCol <- 2
       if (length(incl) > 0 || length(incl_int) > 0) {
-        plot_list <- pdp_plot(x, plot_list, incl, incl_int, ...)
+        plot_list <- pdp_plot(x, plot_list, incl, incl_int, hline = hline, pdp_range = pdp_range, ...)
         if (is.character(plot_list)) {
           return(plot_list)
         }

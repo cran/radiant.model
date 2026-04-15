@@ -364,7 +364,10 @@ output$ui_gbt <- renderUI({
         conditionalPanel(
           condition = "input.gbt_plots == 'pdp' | input.gbt_plots == 'pred_plot'",
           uiOutput("ui_gbt_incl"),
-          uiOutput("ui_gbt_incl_int")
+          uiOutput("ui_gbt_incl_int"),
+          checkboxInput("gbt_hline", "Average response", state_init("gbt_hline", TRUE)),
+          sliderInput("gbt_pdp_range", "Percentile range:", min = 0, max = 1,
+                      value = state_init("gbt_pdp_range", c(0.025, 0.975)), step = 0.025)
         )
       ),
       # conditionalPanel(

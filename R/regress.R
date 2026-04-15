@@ -408,18 +408,26 @@ summary.regress <- function(object, sum_check = "", conf_lev = .95,
 #' @param incl_int Which interactions to investigate in prediction plots
 #' @param fix Set the desired limited on yhat or have it calculated automatically.
 #'   Set to FALSE to have y-axis limits set by ggplot2 for each plot
-#' @param hline Add a horizontal line at the average of the target variable. When set to FALSE
-#'   no line is added. When set to a specific number, the horizontal line will be added at that value
+#' @param hline Add a dashed horizontal line at the mean response. Set to FALSE to suppress,
+#'   or a numeric value to draw the line at that specific value
 #' @param nr Number of values to use to generate predictions for a numeric explanatory variable
-#' @param minq Quantile to use for the minimum value for simulation of numeric variables
-#' @param maxq Quantile to use for the maximum value for simulation of numeric variables
+#' @param pdp_range Numeric vector \code{c(lo, hi)} giving the percentile range used to trim the
+#'   x-axis for numeric predictors (default \code{c(0.025, 0.975)})
+#' @param minq Deprecated. Use \code{pdp_range[1]} instead
+#' @param maxq Deprecated. Use \code{pdp_range[2]} instead
 #'
 #' @importFrom radiant.data visualize
 #' @importFrom rlang .data
 #' @importFrom tidyselect where
 #'
 #' @export
-pred_plot <- function(x, plot_list = list(), incl, incl_int, fix = TRUE, hline = TRUE, nr = 20, minq = 0.025, maxq = 0.975) {
+pred_plot <- function(x, plot_list = list(), incl, incl_int, fix = TRUE, hline = TRUE, nr = 20, pdp_range = c(0.025, 0.975), minq = NULL, maxq = NULL) {
+  if (!is.null(minq) || !is.null(maxq)) {
+    warning("'minq'/'maxq' are deprecated; use 'pdp_range = c(lo, hi)' instead.", call. = FALSE)
+    if (!is.null(minq)) pdp_range[1] <- minq
+    if (!is.null(maxq)) pdp_range[2] <- maxq
+  }
+  minq <- pdp_range[1]; maxq <- pdp_range[2]
   min_max <- c(Inf, -Inf)
   minx <- function(x) quantile(x, p = minq)
   maxx <- function(x) quantile(x, p = maxq)
@@ -566,21 +574,26 @@ pred_plot <- function(x, plot_list = list(), incl, incl_int, fix = TRUE, hline =
 #' @param incl_int Which interactions to investigate in PDP plots
 #' @param fix Set the desired limited on yhat or have it calculated automatically.
 #'   Set to FALSE to have y-axis limits set by ggplot2 for each plot
-#' @param hline Add a horizontal line at the average of the target variable. When set to FALSE
-#'   no line is added. When set to a specific number, the horizontal line will be added at that value
+#' @param hline Add a dashed horizontal line at the mean response. Set to FALSE to suppress,
+#'   or a numeric value to draw the line at that specific value
 #' @param nr Number of values to use to generate predictions for a numeric explanatory variable
-#' @param minq Quantile to use for the minimum value for simulation of numeric variables
-#' @param maxq Quantile to use for the maximum value for simulation of numeric variables
+#' @param pdp_range Numeric vector \code{c(lo, hi)} giving the percentile range used to trim the
+#'   x-axis for numeric predictors (default \code{c(0.025, 0.975)})
+#' @param minq Deprecated. Use \code{pdp_range[1]} instead
+#' @param maxq Deprecated. Use \code{pdp_range[2]} instead
 #'
 #' @importFrom radiant.data visualize
 #' @importFrom ggplot2 autoplot
 #' @importFrom tidyselect where
 #'
 #' @export
-pdp_plot <- function(x, plot_list = list(), incl, incl_int, fix = TRUE, hline = TRUE, nr = 20, minq = 0.025, maxq = 0.975) {
-  if (!requireNamespace("pdp", quietly = TRUE)) {
-    return("Partial Dependence Plots require the 'pdp' package.\nInstall it with: install.packages('pdp')")
+pdp_plot <- function(x, plot_list = list(), incl, incl_int, fix = TRUE, hline = TRUE, nr = 20, pdp_range = c(0.025, 0.975), minq = NULL, maxq = NULL) {
+  if (!is.null(minq) || !is.null(maxq)) {
+    warning("'minq'/'maxq' are deprecated; use 'pdp_range = c(lo, hi)' instead.", call. = FALSE)
+    if (!is.null(minq)) pdp_range[1] <- minq
+    if (!is.null(maxq)) pdp_range[2] <- maxq
   }
+  minq <- pdp_range[1]; maxq <- pdp_range[2]
   pdp_list <- list()
   min_max <- c(Inf, -Inf)
   minx <- function(x) quantile(x, p = minq)
@@ -617,7 +630,7 @@ pdp_plot <- function(x, plot_list = list(), incl, incl_int, fix = TRUE, hline = 
     df <- select(x$model$model, {{ pn }})
     pn_lab <- paste0(pn, collapse = ":")
     if (length(pn) < 2 & is.logical(df[[pn_lab]])) {
-      pdp_list[[pn_lab]] <- pdp::partial(
+      pdp_list[[pn_lab]] <- pdp_partial(
         x$model,
         pred.var = pn,
         plot = FALSE,
@@ -626,7 +639,7 @@ pdp_plot <- function(x, plot_list = list(), incl, incl_int, fix = TRUE, hline = 
       )
       min_max <- calc_ylim("yhat", pdp_list[[pn_lab]], min_max)
     } else if (length(pn) < 2 || sum(sapply(df, is.numeric)) < 2) {
-      pdp_list[[pn_lab]] <- pdp::partial(
+      pdp_list[[pn_lab]] <- pdp_partial(
         x$model,
         pred.var = pn,
         plot = FALSE,
@@ -729,6 +742,10 @@ pdp_plot <- function(x, plot_list = list(), incl, incl_int, fix = TRUE, hline = 
 #' @param excl Which variables to exclude in a coefficient plot
 #' @param incl_int Which interactions to investigate in PDP plots
 #' @param nrobs Number of data points to show in scatter plots (-1 for all)
+#' @param hline Add a dashed horizontal line at the mean response (TRUE/FALSE or a numeric value)
+#' @param pdp_range Numeric vector \code{c(lo, hi)} giving the percentile range for PDP/Prediction plot x-axes (default \code{c(0.025, 0.975)})
+#' @param minq Deprecated. Use \code{pdp_range[1]} instead
+#' @param maxq Deprecated. Use \code{pdp_range[2]} instead
 #' @param shiny Did the function call originate inside a shiny app
 #' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{https://ggplot2.tidyverse.org} for options.
 #' @param ... further arguments passed to or from other methods
@@ -756,9 +773,15 @@ plot.regress <- function(x, plots = "", lines = "",
                          conf_lev = .95, intercept = FALSE,
                          incl = NULL, excl = NULL,
                          incl_int = NULL, nrobs = -1,
+                         hline = TRUE, pdp_range = c(0.025, 0.975), minq = NULL, maxq = NULL,
                          shiny = FALSE, custom = FALSE, ...) {
   if (is.character(x)) {
     return(x)
+  }
+  if (!is.null(minq) || !is.null(maxq)) {
+    warning("'minq'/'maxq' are deprecated; use 'pdp_range = c(lo, hi)' instead.", call. = FALSE)
+    if (!is.null(minq)) pdp_range[1] <- minq
+    if (!is.null(maxq)) pdp_range[2] <- maxq
   }
 
   ## checking x size
@@ -980,7 +1003,7 @@ plot.regress <- function(x, plots = "", lines = "",
       if (length(rem) > 0) {
         return(paste("The following variables are not in the model:", paste(rem, collapse = ", ")))
       }
-      plot_list <- pred_plot(x, plot_list, incl, incl_int, ...)
+      plot_list <- pred_plot(x, plot_list, incl, incl_int, hline = hline, pdp_range = pdp_range, ...)
     } else {
       return("Select one or more variables to generate Prediction plots")
     }
@@ -992,7 +1015,7 @@ plot.regress <- function(x, plots = "", lines = "",
       if (length(rem) > 0) {
         return(paste("The following variables are not in the model:", paste(rem, collapse = ", ")))
       }
-      plot_list <- pdp_plot(x, plot_list, incl, incl_int, ...)
+      plot_list <- pdp_plot(x, plot_list, incl, incl_int, hline = hline, pdp_range = pdp_range, ...)
       if (is.character(plot_list)) {
         return(plot_list)
       }

@@ -12,8 +12,9 @@ pdp_plot(
   fix = TRUE,
   hline = TRUE,
   nr = 20,
-  minq = 0.025,
-  maxq = 0.975
+  pdp_range = c(0.025, 0.975),
+  minq = NULL,
+  maxq = NULL
 )
 }
 \arguments{
@@ -28,14 +29,17 @@ pdp_plot(
 \item{fix}{Set the desired limited on yhat or have it calculated automatically.
 Set to FALSE to have y-axis limits set by ggplot2 for each plot}
 
-\item{hline}{Add a horizontal line at the average of the target variable. When set to FALSE
-no line is added. When set to a specific number, the horizontal line will be added at that value}
+\item{hline}{Add a dashed horizontal line at the mean response. Set to FALSE to suppress,
+or a numeric value to draw the line at that specific value}
 
 \item{nr}{Number of values to use to generate predictions for a numeric explanatory variable}
 
-\item{minq}{Quantile to use for the minimum value for simulation of numeric variables}
+\item{pdp_range}{Numeric vector \code{c(lo, hi)} giving the percentile range used to trim the
+x-axis for numeric predictors (default \code{c(0.025, 0.975)})}
 
-\item{maxq}{Quantile to use for the maximum value for simulation of numeric variables}
+\item{minq}{Deprecated. Use \code{pdp_range[1]} instead}
+
+\item{maxq}{Deprecated. Use \code{pdp_range[2]} instead}
 }
 \description{
 Create Partial Dependence Plots

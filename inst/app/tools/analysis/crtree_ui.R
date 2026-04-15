@@ -377,7 +377,10 @@ output$ui_crtree <- renderUI({
         conditionalPanel(
           condition = "input.crtree_plots == 'pdp' | input.crtree_plots == 'pred_plot'",
           uiOutput("ui_crtree_incl"),
-          uiOutput("ui_crtree_incl_int")
+          uiOutput("ui_crtree_incl_int"),
+          checkboxInput("crtree_hline", "Average response", state_init("crtree_hline", TRUE)),
+          sliderInput("crtree_pdp_range", "Percentile range:", min = 0, max = 1,
+                      value = state_init("crtree_pdp_range", c(0.025, 0.975)), step = 0.025)
         ),
         conditionalPanel(
           condition = "input.crtree_plots == 'tree'",

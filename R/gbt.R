@@ -268,6 +268,7 @@ summary.gbt <- function(object, prn = TRUE, ...) {
     # if (length(ih) > 20) ih <- c(head(ih, 10), "...", tail(ih, 10))
     # cat(paste0(ih, collapse = "\n"))
   }
+  invisible(NULL)
 }
 
 #' Plot method for the gbt function
@@ -279,6 +280,10 @@ summary.gbt <- function(object, prn = TRUE, ...) {
 #' @param nrobs Number of data points to show in scatter plots (-1 for all)
 #' @param incl Which variables to include in a coefficient plot or PDP plot
 #' @param incl_int Which interactions to investigate in PDP plots
+#' @param hline Add a dashed horizontal line at the mean response (TRUE/FALSE or a numeric value)
+#' @param pdp_range Numeric vector \code{c(lo, hi)} giving the percentile range for PDP/Prediction plot x-axes (default \code{c(0.025, 0.975)})
+#' @param minq Deprecated. Use \code{pdp_range[1]} instead
+#' @param maxq Deprecated. Use \code{pdp_range[2]} instead
 #' @param shiny Did the function call originate inside a shiny app
 #' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned.
 #'   This option can be used to customize plots (e.g., add a title, change x and y labels, etc.).
@@ -301,10 +306,16 @@ summary.gbt <- function(object, prn = TRUE, ...) {
 #' @export
 plot.gbt <- function(x, plots = "", nrobs = Inf,
                      incl = NULL, incl_int = NULL,
+                     hline = TRUE, pdp_range = c(0.025, 0.975), minq = NULL, maxq = NULL,
                      shiny = FALSE, custom = FALSE, ...) {
 
   if (is.character(x) || !inherits(x$model, "xgb.Booster")) {
     return(x)
+  }
+  if (!is.null(minq) || !is.null(maxq)) {
+    warning("'minq'/'maxq' are deprecated; use 'pdp_range = c(lo, hi)' instead.", call. = FALSE)
+    if (!is.null(minq)) pdp_range[1] <- minq
+    if (!is.null(maxq)) pdp_range[2] <- maxq
   }
   plot_list <- list()
   ncol <- 1
@@ -315,15 +326,19 @@ plot.gbt <- function(x, plots = "", nrobs = Inf,
   }
 
   if ("pdp" %in% plots) {
-    if (!requireNamespace("pdp", quietly = TRUE)) {
-      return("Partial Dependence Plots require the 'pdp' package.\nInstall it with: install.packages('pdp')")
-    }
     ncol <- 2
     if (length(incl) == 0 && length(incl_int) == 0) {
       return("Select one or more variables to generate Partial Dependence Plots")
     }
+    minq <- pdp_range[1]; maxq <- pdp_range[2]
     mod_dat <- attributes(x$model)$model[, -1, drop = FALSE]
     dtx <- onehot(mod_dat)[, -1, drop = FALSE]
+    hline_val <- if (isTRUE(hline)) {
+      y <- attributes(x$model)$model[[1]]
+      if (is.factor(y)) mean(y == x$lev) else mean(y, na.rm = TRUE)
+    } else {
+      FALSE
+    }
     for (pn in incl) {
       if (is.factor(mod_dat[[pn]])) {
         fn <- paste0(pn, levels(mod_dat[[pn]]))[-1]
@@ -333,7 +348,7 @@ plot.gbt <- function(x, plots = "", nrobs = Inf,
           seed <- x$seed
           dtx_cat <- dtx
           dtx_cat[, setdiff(fn, fn[i])] <- 0
-          pdi <- pdp::partial(
+          pdi <- pdp_partial(
             x$model,
             pred.var = fn[i], plot = FALSE,
             prob = x$type == "classification", train = dtx_cat
@@ -342,7 +357,7 @@ plot.gbt <- function(x, plots = "", nrobs = Inf,
         }
         pgrid <- as.data.frame(matrix(0, ncol = nr))
         colnames(pgrid) <- fn
-        base <- pdp::partial(
+        base <- pdp_partial(
           x$model,
           pred.var = fn,
           pred.grid = pgrid, plot = FALSE,
@@ -351,16 +366,31 @@ plot.gbt <- function(x, plots = "", nrobs = Inf,
         pd <- data.frame(label = levels(mod_dat[[pn]]), yhat = c(base, effects)) %>%
           mutate(label = factor(label, levels = label))
         colnames(pd)[1] <- pn
-        plot_list[[pn]] <- ggplot(pd, aes(x = .data[[pn]], y = .data$yhat)) +
+        p <- ggplot(pd, aes(x = .data[[pn]], y = .data$yhat, group = 1)) +
           geom_point() +
+          geom_line() +
           labs(y = NULL)
+        if (isTRUE(hline)) {
+          p <- p + geom_hline(yintercept = hline_val, lty = 2, linewidth = 0.25)
+        }
+        plot_list[[pn]] <- p
       } else {
-        plot_list[[pn]] <- pdp::partial(
+        col_vals <- dtx[, pn]
+        lo <- stats::quantile(col_vals, minq, na.rm = TRUE)
+        hi <- stats::quantile(col_vals, maxq, na.rm = TRUE)
+        n_grid <- min(length(unique(col_vals)), 51L)
+        pgrid <- data.frame(seq(lo, hi, length.out = n_grid))
+        names(pgrid) <- pn
+        p <- pdp_partial(
           x$model,
-          pred.var = pn, plot = TRUE, rug = TRUE,
+          pred.var = pn, pred.grid = pgrid, plot = TRUE, rug = FALSE,
           prob = x$type == "classification", plot.engine = "ggplot2",
           train = dtx
         ) + labs(y = NULL)
+        if (isTRUE(hline)) {
+          p <- p + geom_hline(yintercept = hline_val, lty = 2, linewidth = 0.25)
+        }
+        plot_list[[pn]] <- p
       }
     }
     for (pn_lab in incl_int) {
@@ -404,7 +434,7 @@ plot.gbt <- function(x, plots = "", nrobs = Inf,
   if ("pred_plot" %in% plots) {
     ncol <- 2
     if (length(incl) > 0 | length(incl_int) > 0) {
-      plot_list <- pred_plot(x, plot_list, incl, incl_int, ...)
+      plot_list <- pred_plot(x, plot_list, incl, incl_int, hline = hline, pdp_range = pdp_range, ...)
     } else {
       return("Select one or more variables to generate Prediction plots")
     }

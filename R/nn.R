@@ -316,8 +316,6 @@ summary.nn <- function(object, prn = TRUE, ...) {
 #' @param data Data to use for prediction. Will default to the data used to estimate the model
 #' @param seed Random seed for reproducibility
 #'
-#' @importFrom vip vi
-#'
 #' @export
 varimp <- function(object, rvar, lev, data = NULL, seed = 1234) {
   if (is.null(data)) {
@@ -360,7 +358,7 @@ varimp <- function(object, rvar, lev, data = NULL, seed = 1234) {
 
   set.seed(seed)
   if (object$type == "regression") {
-    vimp <- vip::vi(
+    vimp <- vi_radiant(
       object,
       target = rvar,
       method = "permute",
@@ -371,7 +369,7 @@ varimp <- function(object, rvar, lev, data = NULL, seed = 1234) {
   } else {
     # required after transition to yardstick by the vip package
     data[[rvar]] <- factor(data[[rvar]], levels = c("TRUE", "FALSE"))
-    vimp <- vip::vi(
+    vimp <- vi_radiant(
       object,
       target = rvar,
       event_level = "first",
@@ -394,8 +392,6 @@ varimp <- function(object, rvar, lev, data = NULL, seed = 1234) {
 #' @param lev Reference class for binary classifier (rvar)
 #' @param data Data to use for prediction. Will default to the data used to estimate the model
 #' @param seed Random seed for reproducibility
-#'
-#' @importFrom vip vi
 #'
 #' @export
 varimp_plot <- function(object, rvar, lev, data = NULL, seed = 1234) {
@@ -421,6 +417,10 @@ varimp_plot <- function(object, rvar, lev, data = NULL, seed = 1234) {
 #' @param nrobs Number of data points to show in dashboard scatter plots (-1 for all)
 #' @param incl Which variables to include in a coefficient plot or PDP plot
 #' @param incl_int Which interactions to investigate in PDP plots
+#' @param hline Add a dashed horizontal line at the mean response (TRUE/FALSE or a numeric value)
+#' @param pdp_range Numeric vector \code{c(lo, hi)} giving the percentile range for PDP/Prediction plot x-axes (default \code{c(0.025, 0.975)})
+#' @param minq Deprecated. Use \code{pdp_range[1]} instead
+#' @param maxq Deprecated. Use \code{pdp_range[2]} instead
 #' @param shiny Did the function call originate inside a shiny app
 #' @param custom Logical (TRUE, FALSE) to indicate if ggplot object (or list of ggplot objects) should be returned. This option can be used to customize plots (e.g., add a title, change x and y labels, etc.). See examples and \url{https://ggplot2.tidyverse.org} for options.
 #' @param ... further arguments passed to or from other methods
@@ -439,9 +439,15 @@ varimp_plot <- function(object, rvar, lev, data = NULL, seed = 1234) {
 #' @export
 plot.nn <- function(x, plots = "vip", size = 12, pad_x = 0.9, nrobs = -1,
                     incl = NULL, incl_int = NULL,
+                    hline = TRUE, pdp_range = c(0.025, 0.975), minq = NULL, maxq = NULL,
                     shiny = FALSE, custom = FALSE, ...) {
   if (is.character(x) || !inherits(x$model, "nnet")) {
     return(x)
+  }
+  if (!is.null(minq) || !is.null(maxq)) {
+    warning("'minq'/'maxq' are deprecated; use 'pdp_range = c(lo, hi)' instead.", call. = FALSE)
+    if (!is.null(minq)) pdp_range[1] <- minq
+    if (!is.null(maxq)) pdp_range[2] <- maxq
   }
   plot_list <- list()
   nrCol <- 1
@@ -485,7 +491,7 @@ plot.nn <- function(x, plots = "vip", size = 12, pad_x = 0.9, nrobs = -1,
   if ("pred_plot" %in% plots) {
     nrCol <- 2
     if (length(incl) > 0 | length(incl_int) > 0) {
-      plot_list <- pred_plot(x, plot_list, incl, incl_int, ...)
+      plot_list <- pred_plot(x, plot_list, incl, incl_int, hline = hline, pdp_range = pdp_range, ...)
     } else {
       return("Select one or more variables to generate Prediction plots")
     }
@@ -494,7 +500,7 @@ plot.nn <- function(x, plots = "vip", size = 12, pad_x = 0.9, nrobs = -1,
   if ("pdp" %in% plots) {
     nrCol <- 2
     if (length(incl) > 0 || length(incl_int) > 0) {
-      plot_list <- pdp_plot(x, plot_list, incl, incl_int, ...)
+      plot_list <- pdp_plot(x, plot_list, incl, incl_int, hline = hline, pdp_range = pdp_range, ...)
       if (is.character(plot_list)) {
         return(plot_list)
       }

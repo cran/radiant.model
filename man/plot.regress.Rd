@@ -14,6 +14,10 @@
   excl = NULL,
   incl_int = NULL,
   nrobs = -1,
+  hline = TRUE,
+  pdp_range = c(0.025, 0.975),
+  minq = NULL,
+  maxq = NULL,
   shiny = FALSE,
   custom = FALSE,
   ...
@@ -37,6 +41,14 @@
 \item{incl_int}{Which interactions to investigate in PDP plots}
 
 \item{nrobs}{Number of data points to show in scatter plots (-1 for all)}
+
+\item{hline}{Add a dashed horizontal line at the mean response (TRUE/FALSE or a numeric value)}
+
+\item{pdp_range}{Numeric vector \code{c(lo, hi)} giving the percentile range for PDP/Prediction plot x-axes (default \code{c(0.025, 0.975)})}
+
+\item{minq}{Deprecated. Use \code{pdp_range[1]} instead}
+
+\item{maxq}{Deprecated. Use \code{pdp_range[2]} instead}
 
 \item{shiny}{Did the function call originate inside a shiny app}
 
